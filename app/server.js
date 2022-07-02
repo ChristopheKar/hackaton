@@ -4,7 +4,11 @@ require('dotenv').config()
 
 const TonWeb = require('tonweb');
 const nacl = TonWeb.utils.nacl;
-const tonweb = new TonWeb();
+
+const providerUrl = 'https://testnet.toncenter.com/api/v2/jsonRPC'; // TON HTTP API on TESTNET
+const tonweb = new TonWeb(new TonWeb.HttpProvider(providerUrl, {apiKey: process.env.TON_TEST_API_KEY}));
+console.log(tonweb.provider);
+
 const tonMnemonic = require('tonweb-mnemonic');
 const crypto = require('crypto');
 
@@ -53,11 +57,6 @@ function sleep(ms) {
 
 function logWallet(wallet, name) {
     console.log(`Wallet ${name || ''}:`, {seed: wallet.seedB64, address: wallet.address});
-}
-
-async function logWalletBalance(wallet, name) {
-    const balance = await tonweb.getBalance(wallet.address);
-    console.log(`Wallet ${name || ''} Balance: ${balance}`);
 }
 
 ///////////////////////////////////
@@ -127,112 +126,83 @@ const createWalletFromSeed = async (seedBase64) => {
 
 const initTon = async () => {
 
-    // Init Ton API
-    const providerUrl = 'https://testnet.toncenter.com/api/v2/jsonRPC'; // TON HTTP API on TESTNET
-    const tonweb = new TonWeb(new TonWeb.HttpProvider(providerUrl, {apiKey: process.env.TON_TEST_API_KEY}));
-    console.log(tonweb.provider);
-
-    // Create wallet from scratch
-    const walletA = await createWalletFromSeed('MLbM7ZlJG2QqGOFnwa8KH3ufYsWSwJEU9KtCekciUPc=');
-    walletA.wallet.provider = providerUrl;
-    logWallet(walletA, 'A');
-    const walletB = await createWalletFromSeed('w8bAvwS3Cygz37rSA+xJK4gU0eDFBQKSpoPswn2oJr8=');
-    walletB.wallet.provider = providerUrl;
-    logWallet(walletB, 'B');
-
-
     try {
-      await walletA.wallet.deploy(walletA.keyPair.secretKey).send();
-      await sleep(1500);
-      await walletB.wallet.deploy(walletB.keyPair.secretKey).send();
-      await sleep(1500);
+        // Create wallet from scratch
+        const walletA = await createWalletFromSeed('lPHZcR9JtZoIYAYX3lvx1IeNlFxZqabQ0RF4RoZMoK8=');
+        logWallet(walletA, 'A');
+        const walletB = await createWalletFromSeed('ZkiNN8Gowo7X0AZGU/I5Yrm2v4yUK36UADdkjQR4zKc=');
+        logWallet(walletB, 'B');
 
-      const seqno = (await walletA.wallet.methods.seqno().call()) || 0;
-      console.log('wallet A seqno = ', seqno);
+        // // Deploy wallets
+        // await walletA.wallet.deploy(walletA.keyPair.secretKey).send(netFee);
+        // await walletB.wallet.deploy(walletB.keyPair.secretKey).send(netFee);
 
-      // Simple transfer
+        // Log wallet balances
+        const balanceA = await tonweb.getBalance(walletA.address);
+        console.log(`Wallet A Balance: ${balanceA}`);
+        const balanceB = await tonweb.getBalance(walletB.address);
+        console.log(`Wallet B Balance: ${balanceB}`);
 
-      await sleep(2000);
-      const simpleTransfer = async () => {
-          console.log(
-              'simpleTransfer',
-              await walletA.wallet.methods.transfer({
-                  secretKey: walletA.keyPair.secretKey,
-                  toAddress: walletB.wallet.address,
-                  amount: toNano('0.01'),
-                  seqno: seqno || 0,
-                  payload: 'Hello',
-                  sendMode: 3,
-              }).send()
-          );
-      }
-      simpleTransfer();
-      await sleep(8000);
-      logWalletBalance(walletA, 'A');
-      await sleep(1500);
-      logWalletBalance(walletB, 'B');
 
-    } catch(err) {
-        console.log('Caught exception...');
-        console.log(err);
-    }
+        // Create payment channel configurations
+        const channelId = getRandomInt(100000);
+        // const channelId = 41749;
+        console.log('Payment Channel ID:', channelId);
+        const channelInitState = {
+            balanceA: toNano('0.1'),
+            balanceB: toNano('0.1'),
+            seqnoA: new BN(0), // initially 0
+            seqnoB: new BN(0)  // initially 0
+        };
+        const channelConfig = {
+            channelId: new BN(channelId),
+            addressA: walletA.wallet.address,
+            addressB: walletB.wallet.address,
+            initBalanceA: channelInitState.balanceA,
+            initBalanceB: channelInitState.balanceB
+        }
 
-    // Create payment channel configurations
-    const channelInitState = {
-        balanceA: toNano('1'),
-        balanceB: toNano('1'),
-        seqnoA: new BN(0), // initially 0
-        seqnoB: new BN(0)  // initially 0
-    };
-    const channelConfig = {
-        channelId: new BN(getRandomInt(1000)),
-        addressA: walletA.wallet.address,
-        addressB: walletB.wallet.address,
-        initBalanceA: channelInitState.balanceA,
-        initBalanceB: channelInitState.balanceB
-    }
+        // Create payment channel at A
+        const channelA = tonweb.payments.createChannel({
+            ...channelConfig,
+            isA: true,
+            myKeyPair: walletA.keyPair,
+            hisPublicKey: walletB.keyPair.publicKey,
+        });
+        const channelAddress = await channelA.getAddress();
+        console.log('Payment Channel Address = ', channelAddress.toString(true, true, true));
 
-    // Create payment channel at A
-    const channelA = tonweb.payments.createChannel({
-        ...channelConfig,
-        isA: true,
-        myKeyPair: walletA.keyPair,
-        hisPublicKey: walletB.keyPair.publicKey,
-    });
-    const channelAddress = await channelA.getAddress();
-    console.log('Payment Channel Address = ', channelAddress.toString(true, true, true));
+        // Create payment channel at B
+        const channelB = tonweb.payments.createChannel({
+            ...channelConfig,
+            isA: false,
+            myKeyPair: walletB.keyPair,
+            hisPublicKey: walletA.keyPair.publicKey,
+        });
 
-    // Create payment channel at B
-    const channelB = tonweb.payments.createChannel({
-        ...channelConfig,
-        isA: false,
-        myKeyPair: walletB.keyPair,
-        hisPublicKey: walletA.keyPair.publicKey,
-    });
+        // Check if payment channel addresses match
+        if ((await channelB.getAddress()).toString() !== channelAddress.toString()) {
+            throw new Error('Channels address not same');
+        } else {
+            console.log('A and B channels agree!');
+        }
 
-    // Check if payment channel addresses match
-    if ((await channelB.getAddress()).toString() !== channelAddress.toString()) {
-        throw new Error('Channels address not same');
-    }
+        // Create helpers to send messages from wallet to payment channel
+        const fromWalletA = channelA.fromWallet({
+            wallet: walletA.wallet,
+            secretKey: walletA.keyPair.secretKey
+        });
+        const fromWalletB = channelB.fromWallet({
+            wallet: walletB.wallet,
+            secretKey: walletB.keyPair.secretKey
+        });
 
-    // Create helpers to send messages from wallet to payment channel
-    const fromWalletA = channelA.fromWallet({
-        wallet: walletA.wallet,
-        secretKey: walletA.keyPair.secretKey
-    });
-    const fromWalletB = channelB.fromWallet({
-        wallet: walletB.wallet,
-        secretKey: walletB.keyPair.secretKey
-    });
-
-    // Deploy channel to blockchain
-    try {
+        // Deploy channel to blockchain
         console.log('Deploying channel...')
-        await sleep(1500);
         await fromWalletA.deploy().send(netFee);
-        await sleep(6000);
 
-        const data = await channelA.getData();
+        await sleep(15000);
+        let data = await channelA.getData();
         console.log('balanceA = ', data.balanceA.toString())
         console.log('balanceB = ', data.balanceB.toString())
 
@@ -243,16 +213,51 @@ const initTon = async () => {
             .topUp({coinsA: new BN(0), coinsB: channelInitState.balanceB})
             .send(channelInitState.balanceB.add(netFee));
 
+        await fromWalletA.init(channelInitState).send(toNano('0.05'));
 
-    } catch(e) {
-      console.log('Caught exception...');
-      console.log(e)
+        await sleep(10000);
+        data = await channelA.getData();
+        console.log('balanceA = ', data.balanceA.toString())
+        console.log('balanceB = ', data.balanceB.toString())
+
+        // Off-chain transfer
+        const channelState1 = {
+            balanceA: toNano('0.15'),
+            balanceB: toNano('0.05'),
+            seqnoA: new BN(1),
+            seqnoB: new BN(0)
+        };
+        const signatureA1 = await channelA.signState(channelState1);
+        if (!(await channelB.verifyState(channelState1, signatureA1))) {
+            throw new Error('Invalid A signature');
+        }
+        const signatureB1 = await channelB.signState(channelState1);
+
+        // Get data
+        await sleep(8000);
+        data = await channelA.getData();
+        console.log('balanceA = ', data.balanceA.toString())
+        console.log('balanceB = ', data.balanceB.toString())
+
+        //
+        const signatureCloseB = await channelB.signClose(channelState1);
+        if (!(await channelA.verifyClose(channelState1, signatureCloseB))) {
+            throw new Error('Invalid B signature');
+        }
+
+        await fromWalletA.close({
+            ...channelState1,
+            hisSignature: signatureCloseB
+        }).send(toNano('0.05'));
+
+        console.log('Closed channel...');
+
+    } catch(err) {
+        console.log('Caught exception...');
+        console.log(err);
     }
 
-
-
 }
-
 
 app.listen(PORT, HOST, () => {
   initTon();
