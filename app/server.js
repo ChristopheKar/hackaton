@@ -2,37 +2,18 @@
 
 require('dotenv').config()
 
-const TonWeb = require('tonweb');
-const nacl = TonWeb.utils.nacl;
-
-const providerUrl = 'https://testnet.toncenter.com/api/v2/jsonRPC'; // TON HTTP API on TESTNET
-const tonweb = new TonWeb(new TonWeb.HttpProvider(providerUrl, {apiKey: process.env.TON_TEST_API_KEY}));
-console.log(tonweb.provider);
-
-const tonMnemonic = require('tonweb-mnemonic');
-const crypto = require('crypto');
-
+// Setup express
 const express = require("express");
 const app = express();
 const PORT = 8080;
 const HOST = '0.0.0.0';
 
-
-///////////////////////////////////
-// Routes
-///////////////////////////////////
-
-var homeRouter = require('./routes/home');
-app.use(homeRouter);
-
+// Setup tonweb
+const wallets = require('./wallets');
 
 ///////////////////////////////////
 // Utilities
 ///////////////////////////////////
-
-const BN = TonWeb.utils.BN;
-const toNano = TonWeb.utils.toNano;
-const netFee = toNano(process.env.NETWORK_FEE)
 
 function getRandomInt(max) {
   return Math.floor(Math.random() * max);
@@ -55,83 +36,252 @@ function sleep(ms) {
   });
 }
 
-function logWallet(wallet, name) {
-    console.log(`Wallet ${name || ''}:`, {seed: wallet.seedB64, address: wallet.address});
+///////////////////////////////////
+// Routes
+///////////////////////////////////
+
+
+function createChannelFromState(wallet, state) {
+  return wallets.tonweb.payments.createChannel({
+      channelId: state.channelId,
+      addressA: state.address,
+      addressB: wallet.wallet.address,
+      initBalanceA: state.initialBalanceA,
+      initBalanceB: state.initialBalanceB,
+      isA: false,
+      myKeyPair: wallet.keyPair,
+      hisPublicKey: state.keyPair.publicKey
+  })
 }
 
-///////////////////////////////////
-// Wallet Creation
-///////////////////////////////////
-
-const initWalletFromKeyPair = async (keyPair, create) => {
-
-  if (create === undefined) {
-      create = true;
-  }
-
-  // const wallet = tonweb.wallet.create({
-  //     publicKey: keyPair.publicKey
-  // });
-  const WalletClass = tonweb.wallet.all['v4R2'];
-  const wallet = new WalletClass(tonweb.provider, {
-      publicKey: keyPair.publicKey,
-      wc: 0
+function channelHelper(channel, wallet) {
+  return channel.fromWallet({
+      wallet: wallet.wallet,
+      secretKey: wallet.keyPair.secretKey
   });
-  await wallet.getAddress();
-
-  return {
-    wallet: wallet,
-    keyPair: keyPair,
-    address: wallet.address.toString(true, true, !create),
-  }
-
 }
 
-const createWalletFromMnemonic = async (mnemonic) => {
 
-  let create = false;
-  if (mnemonic === undefined) {
-    create = true;
-    mnemonic = await tonMnemonic.generateMnemonic();
-  }
+var homeRouter = require('./routes/home');
+app.use(homeRouter);
 
-  const isValid = await tonMnemonic.validateMnemonic(mnemonic);
-  if (!isValid) {
-    throw new Error('Mnemonic is invalid.');
-  }
+app.get('/get-server-wallet', async (req, res) => {
+    let wallet;
+    try {
+        wallet = await wallets.getServerWallet();
+    }  catch(err) {
+        console.log(err);
+    }
+    console.log(wallet);
+    res.send({
+      address: wallet.address,
+      publicKey: wallet.keyPair.publicKey
+    });
+});
 
-  const keyPair = await tonMnemonic.mnemonicToKeyPair(mnemonic);
-  const wallet = await initWalletFromKeyPair(keyPair, create);
-  wallet.mnemonic = mnemonic;
 
-  return wallet;
-}
+app.get('/deploy-server-channel', async (req, res, next) => {
 
-const createWalletFromSeed = async (seedBase64) => {
+    // Get server wallet
+    let wallet;
+    try {
+        wallet = await wallets.getServerWallet();
+    }  catch(err) {
+        console.log(err);
+        res.status(500).send(err)
+    }
 
-  let create = false;
-  if (seedBase64 === undefined) {
-    create = true;
-    seedBase64 = Buffer.from(tonweb.utils.newSeed()).toString('base64');
-  }
-  const seed = TonWeb.utils.base64ToBytes(seedBase64);
-  const keyPair = tonweb.utils.keyPairFromSeed(seed);
+    // Create channel
+    const channel = createChannelFromState(wallet, req.body);
+    const fromWallet = channelHelper(channel, wallet);
 
-  const wallet = await initWalletFromKeyPair(keyPair, create);
-  wallet.seedB64 = seedBase64;
+    // Check if channel addresses match
+    let channelsMatch;
+    try {
+        channelsMatch = ((await channel.getAddress()).toString() === req.body.channelAddressA);
+    } catch(err) {
+        console.log(err);
+        res.status(500).send(err)
+    }
 
-  return wallet;
+    // Deploy channel to blockchain
+    console.log('Deploying channel...');
+    await fromWalletA.deploy().send(wallets.netFee);
+    console.log('Channel deployed.');
 
-}
+    res.send({status: 'deployed'});
+
+});
+
+
+app.get('/init-server-channel', async (req, res, next) => {
+
+    // Get server wallet
+    let wallet;
+    try {
+        wallet = await wallets.getServerWallet();
+    }  catch(err) {
+        console.log(err);
+        res.status(500).send(err)
+    }
+
+    // Create channel
+    const channel = createChannelFromState(wallet, req.boy);
+    const fromWallet = channelHelper(channel, wallet);
+
+    // Check if channel addresses match
+    try {
+        const channelsMatch = ((await channel.getAddress()).toString() === req.body.channelAddressA);
+    } catch(err) {
+        console.log(err);
+        res.status(500).send(err)
+    }
+    if (!channelsMatch) {
+        res.status(403).send({
+            status: 'error',
+            message: 'Channel addresses do not match.'
+        });
+    }
+
+    // Deploy channel to blockchain
+    console.log('Initializing channel...');
+    await fromWalletA.init({
+        balanceA: toNano(req.body.initialBalanceA),
+        balanceB: toNano(req.body.initialBalanceA),
+        seqnoA: new BN(req.body.seqnoA),
+        seqnoB: new BN(req.body.seqnoB)
+    }).send(wallets.netFee);
+    console.log('Channel initialized.');
+
+    res.send({status: 'initialized'});
+
+});
+
+app.get('/transfer-server-channel', async (req, res, next) => {
+
+    // Get server wallet
+    let wallet;
+    try {
+        wallet = await wallets.getServerWallet();
+    }  catch(err) {
+        console.log(err);
+        res.status(500).send(err)
+    }
+
+    // Create channel
+    const channel = createChannelFromState(wallet, req.body);
+    const fromWallet = channelHelper(channel, wallet);
+    const channelsMatch = doChannelsMatch(channel, req.body)
+
+    // Check if channel addresses match
+    try {
+        const channelsMatch = ((await channel.getAddress()).toString() === req.body.channelAddressA);
+    } catch(err) {
+        console.log(err);
+        res.status(500).send(err)
+    }
+    if (!channelsMatch) {
+        res.status(403).send({
+            status: 'error',
+            message: 'Channel addresses do not match.'
+        });
+    }
+
+    // Make off-chain transfer
+    console.log('Starting offchain transfer...');
+    // Verify state signature
+    let isValidState;
+    try {
+        isValidState = (await channel.verifyState(req.body.lastState, req.body.signatureState));
+    } catch(err) {
+        console.log(err);
+        res.status(500).send(err)
+    }
+    if (!isValidState) {
+      res.status(403).send({
+          status: 'error',
+          message: 'Invalid state signature.'
+      });
+    }
+    // Sign state
+    const signatureB1 = await channel.signState(req.body.lastState);
+    console.log('Transfer done.');
+
+    res.send({status: 'transfered'});
+
+});
+
+
+app.get('/close-server-channel', async (req, res, next) => {
+
+    // Get server wallet
+    let wallet;
+    try {
+        wallet = await wallets.getServerWallet();
+    }  catch(err) {
+        console.log(err);
+        res.status(500).send(err)
+    }
+
+    // Create channel
+    const channel = createChannelFromState(wallet, req.body);
+    const fromWallet = channelHelper(channel, wallet);
+
+    // Check if channel addresses match
+    let channelsMatch;
+    try {
+        channelsMatch = ((await channel.getAddress()).toString() === req.body.channelAddressA);
+    } catch(err) {
+        console.log(err);
+        res.status(500).send(err)
+    }
+    if (!channelsMatch) {
+        res.status(403).send({
+            status: 'error',
+            message: 'Channel addresses do not match.'
+        });
+    }
+
+    console.log('Closing channel...');
+    // Verify close signature
+    let isValidClose;
+    try {
+        isValidClose = (await channel.verifyClose(req.body.lastState, req.body.signatureClose));
+    } catch(err) {
+        console.log(err);
+        res.status(500).send(err)
+    }
+    if (!isValidClose) {
+      res.status(403).send({
+          status: 'error',
+          message: 'Invalid closing signature.'
+      });
+    }
+    // Close channel
+    await fromWallet.close({
+        ...req.body.lastState,
+        hisSignature: req.body.signatureClose
+    }).send(wallets.netFee);
+    console.log('Channel closed.');
+
+    res.send({status: 'closed'});
+
+});
+
 
 const initTon = async () => {
 
     try {
+        let tonweb = wallets.tonweb;
+        let toNano = wallets.toNano;
+        let netFee = wallets.netFee;
+        let BN = wallets.BN;
+
         // Create wallet from scratch
-        const walletA = await createWalletFromSeed('lPHZcR9JtZoIYAYX3lvx1IeNlFxZqabQ0RF4RoZMoK8=');
-        logWallet(walletA, 'A');
-        const walletB = await createWalletFromSeed('ZkiNN8Gowo7X0AZGU/I5Yrm2v4yUK36UADdkjQR4zKc=');
-        logWallet(walletB, 'B');
+        const walletA = await wallets.createWalletFromSeed('lPHZcR9JtZoIYAYX3lvx1IeNlFxZqabQ0RF4RoZMoK8=');
+        wallets.logWallet(walletA, 'A');
+        const walletB = await wallets.createWalletFromSeed('ZkiNN8Gowo7X0AZGU/I5Yrm2v4yUK36UADdkjQR4zKc=');
+        wallets.logWallet(walletB, 'B');
 
         // // Deploy wallets
         // await walletA.wallet.deploy(walletA.keyPair.secretKey).send(netFee);
@@ -143,14 +293,13 @@ const initTon = async () => {
         const balanceB = await tonweb.getBalance(walletB.address);
         console.log(`Wallet B Balance: ${balanceB}`);
 
-
         // Create payment channel configurations
         const channelId = getRandomInt(100000);
-        // const channelId = 41749;
+        // const channelId = 4;
         console.log('Payment Channel ID:', channelId);
         const channelInitState = {
-            balanceA: toNano('0.1'),
-            balanceB: toNano('0.1'),
+            balanceA: toNano('0.2'),
+            balanceB: toNano('0.2'),
             seqnoA: new BN(0), // initially 0
             seqnoB: new BN(0)  // initially 0
         };
@@ -198,59 +347,74 @@ const initTon = async () => {
         });
 
         // Deploy channel to blockchain
-        console.log('Deploying channel...')
+        console.log('Deploying channel...');
         await fromWalletA.deploy().send(netFee);
-
-        await sleep(15000);
-        let data = await channelA.getData();
-        console.log('balanceA = ', data.balanceA.toString())
-        console.log('balanceB = ', data.balanceB.toString())
-
-        await fromWalletA
-            .topUp({coinsA: channelInitState.balanceA, coinsB: new BN(0)})
-            .send(channelInitState.balanceA.add(netFee));
-        await fromWalletB
-            .topUp({coinsA: new BN(0), coinsB: channelInitState.balanceB})
-            .send(channelInitState.balanceB.add(netFee));
-
-        await fromWalletA.init(channelInitState).send(toNano('0.05'));
+        console.log('Channel deployed.');
 
         await sleep(10000);
-        data = await channelA.getData();
-        console.log('balanceA = ', data.balanceA.toString())
-        console.log('balanceB = ', data.balanceB.toString())
+        await wallets.checkChannelState(channelA);
 
+        console.log('Topping up from wallet A...');
+        await fromWalletA
+            .topUp({coinsA: channelInitState.balanceA, coinsB: new BN(0)})
+            .send(channelInitState.balanceA);
+        await sleep(10000);
+
+        console.log('Topping up from wallet B...');
+        await fromWalletB
+            .topUp({coinsA: new BN(0), coinsB: channelInitState.balanceB})
+            .send(channelInitState.balanceB);
+
+        await sleep(10000);
+        await wallets.checkChannelState(channelA);
+
+        console.log('Sending init...');
+        await fromWalletA.init(channelInitState).send(netFee);
+        console.log('Init done.');
+
+        await sleep(10000);
+        await checkChannelState(channelA);
+
+        console.log('Starting offchain transfer 1...');
         // Off-chain transfer
         const channelState1 = {
-            balanceA: toNano('0.15'),
-            balanceB: toNano('0.05'),
+            balanceA: toNano('0.17'),
+            balanceB: toNano('0.23'),
             seqnoA: new BN(1),
             seqnoB: new BN(0)
         };
+        console.log('A is signing off-chain transfer 1...');
         const signatureA1 = await channelA.signState(channelState1);
         if (!(await channelB.verifyState(channelState1, signatureA1))) {
             throw new Error('Invalid A signature');
         }
+        console.log('B is signing off-chain transfer 1...');
         const signatureB1 = await channelB.signState(channelState1);
 
         // Get data
-        await sleep(8000);
-        data = await channelA.getData();
-        console.log('balanceA = ', data.balanceA.toString())
-        console.log('balanceB = ', data.balanceB.toString())
+        await sleep(10000);
+        await wallets.checkChannelState(channelA);
 
-        //
+        // Close channel
+        console.log('Closing channel...');
         const signatureCloseB = await channelB.signClose(channelState1);
         if (!(await channelA.verifyClose(channelState1, signatureCloseB))) {
             throw new Error('Invalid B signature');
         }
 
+        await sleep(10000);
+        await wallets.checkChannelState(channelA);
+
+
         await fromWalletA.close({
             ...channelState1,
             hisSignature: signatureCloseB
-        }).send(toNano('0.05'));
+        }).send(netFee);
 
         console.log('Closed channel...');
+
+        await sleep(10000);
+        await wallets.checkChannelState(channelA);
 
     } catch(err) {
         console.log('Caught exception...');
@@ -259,7 +423,9 @@ const initTon = async () => {
 
 }
 
+
+
+
 app.listen(PORT, HOST, () => {
-  initTon();
   console.log(`Server started, running on http://${HOST}:${PORT}`);
 });
