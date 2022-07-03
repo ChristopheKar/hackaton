@@ -151,6 +151,7 @@ app.post('/init-server-channel', async (req, res, next) => {
         console.log('Caught error...')
         console.log(err);
         res.status(500).send(err);
+        return;
     }
     if (!channelsMatch) {
         res.status(403).send({
@@ -163,15 +164,26 @@ app.post('/init-server-channel', async (req, res, next) => {
     // Top up channel
     try{
         console.log('Topping up...');
+        let channelData = await channel.getData();
+        let prevBalance = channelData.balanceB.toNumber();
+        let currBalance = prevBalance;
+
+        // Top up
         await fromWallet
             .topUp({coinsA: new wallets.BN(req.body.seqnoA), coinsB: wallets.toNano(req.body.initBalanceB)})
             .send(wallets.toNano(req.body.initBalanceB).add(wallets.netFee));
+
+        while (currBalance === prevBalance) {
+          channelData = await channel.getData();
+          currBalance = channelData.balanceB.toNumber();
+          await sleep(500);
+        }
 
         // Init channel
         console.log('Initializing channel...');
         await fromWallet.init({
             balanceA: wallets.toNano(req.body.initBalanceA),
-            balanceB: wallets.toNano(req.body.initBalanceA),
+            balanceB: wallets.toNano(req.body.initBalanceB),
             seqnoA: new wallets.BN(req.body.seqnoA),
             seqnoB: new wallets.BN(req.body.seqnoB)
         }).send(wallets.netFee);
@@ -180,6 +192,7 @@ app.post('/init-server-channel', async (req, res, next) => {
         console.log('Caught error...')
         console.log(err);
         res.status(500).send(err);
+        return;
     }
 
     res.send({status: 'initialized'});
