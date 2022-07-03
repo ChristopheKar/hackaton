@@ -5,7 +5,7 @@ import { cookies } from './cookies';
 
 
 
-const apiUrl = 'http://localhost:8080';
+const apiUrl = process.env.NODE_ENV === 'production' ? '/' : 'http://localhost:8080';
 
 export const getServerWallet = () => {
 
@@ -177,8 +177,8 @@ export const makeTransfer = async (clientWallet, channel, amountBet, didWin) => 
 
     const newSeqnoA = channelInfo?.seqnoA + (didWin ? 0 : 1);
     const newSeqnoB = channelInfo?.seqnoB + (didWin ? 1 : 0);
-    const newBalanceA = ( parseFloat(channelInfo?.balanceA) + ((didWin ? 1 : -1) * amountBet / 1000000000) );
-    const newBalanceB = ( parseFloat(channelInfo?.balanceB) + ((didWin ? -1 : 1) * amountBet / 1000000000) );
+    const newBalanceA = Math.round(( parseFloat(channelInfo?.balanceA) + ((didWin ? 1 : -1) * amountBet / 1000000000) ) * 1000000000) / 1000000000;
+    const newBalanceB = Math.round(( parseFloat(channelInfo?.balanceB) + ((didWin ? -1 : 1) * amountBet / 1000000000) ) * 1000000000 / 1000000000);
     // const newBalanceA = ((tonweb.utils.toNano(channelInfo?.balanceA) + ((didWin ? 1 : -1) * amountBet))/1000000000).toString());
     // const newBalanceB = tonweb.utils.toNano(((tonweb.utils.toNano(channelInfo?.balanceB) + ((didWin ? -1 : 1) * amountBet))/1000000000).toString());
 
