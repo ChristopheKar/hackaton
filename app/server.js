@@ -42,16 +42,18 @@ function sleep(ms) {
 
 
 function createChannelFromState(wallet, state) {
+  state.address.hashPart = Uint8Array.from(Object.values(state.address.hashPart));
+  state.keyPair.publicKey = Uint8Array.from(Object.values(state.keyPair.publicKey));
   return wallets.tonweb.payments.createChannel({
-      channelId: state.channelId,
+      channelId: new wallets.BN(state.channelId),
       addressA: state.address,
       addressB: wallet.wallet.address,
-      initBalanceA: state.initialBalanceA,
-      initBalanceB: state.initialBalanceB,
+      initBalanceA: wallets.toNano(state.initBalanceA),
+      initBalanceB: wallets.toNano(state.initBalanceB),
       isA: false,
       myKeyPair: wallet.keyPair,
       hisPublicKey: state.keyPair.publicKey
-  })
+  });
 }
 
 function channelHelper(channel, wallet) {
@@ -64,6 +66,7 @@ function channelHelper(channel, wallet) {
 
 var homeRouter = require('./routes/home');
 app.use(homeRouter);
+app.use(express.json());
 
 app.get('/get-server-wallet', async (req, res) => {
     let wallet;
@@ -72,15 +75,119 @@ app.get('/get-server-wallet', async (req, res) => {
     }  catch(err) {
         console.log(err);
     }
-    console.log(wallet);
     res.send({
-      address: wallet.address,
-      publicKey: wallet.keyPair.publicKey
+      addressStr: wallet.address,
+      address: wallet.wallet.address,
+      keyPair: {publicKey: Buffer.from(wallet.keyPair.publicKey).toString('base64')}
     });
 });
 
 
-app.get('/deploy-server-channel', async (req, res, next) => {
+app.post('/deploy-server-channel', async (req, res, next) => {
+
+    // Get server wallet
+    let wallet;
+    try {
+        wallet = await wallets.getServerWallet();
+    }  catch(err) {
+        console.log(err);
+        res.status(500).send(err)
+    }
+
+    // Create channel
+    const channel = createChannelFromState(wallet, req.body);
+    const fromWallet = channelHelper(channel, wallet);
+
+    // Check if channel addresses match
+    let channelsMatch;
+    try {
+        let channelAddress = (await channel.getAddress()).toString();
+        console.log('Channel Address', channelAddress, '//', req.body.channelAddress);
+        channelsMatch = (channelAddress === req.body.channelAddress);
+    } catch(err) {
+        console.log(err);
+        res.status(403).send(err)
+    }
+
+    // Deploy channel to blockchain
+    console.log('Deploying channel...');
+    try {
+      await fromWallet.deploy().send(wallets.netFee);
+    } catch(err) {
+      console.log(err);
+      res.status(500).send(err)
+    }
+    console.log('Channel deployed.');
+
+    res.send({status: 'deployed'});
+
+});
+
+
+app.post('/init-server-channel', async (req, res, next) => {
+
+    // Get server wallet
+    let wallet;
+    try {
+        wallet = await wallets.getServerWallet();
+    }  catch(err) {
+        console.log('Caught error...')
+        console.log(err);
+        res.status(500).send(err)
+        return;
+    }
+
+    // Create channel
+    const channel = createChannelFromState(wallet, req.body);
+    const fromWallet = channelHelper(channel, wallet);
+
+    // Check if channel addresses match
+    let channelsMatch;
+    try {
+        let channelAddress = (await channel.getAddress()).toString();
+        console.log('Channel Address', channelAddress, '//', req.body.channelAddress);
+        channelsMatch = (channelAddress === req.body.channelAddress);
+    } catch(err) {
+        console.log('Caught error...')
+        console.log(err);
+        res.status(500).send(err);
+    }
+    if (!channelsMatch) {
+        res.status(403).send({
+            status: 'error',
+            message: 'Channel addresses do not match.'
+        });
+        return;
+    }
+
+    // Top up channel
+    try{
+        console.log('Topping up...');
+        await fromWallet
+            .topUp({coinsA: new wallets.BN(req.body.seqnoA), coinsB: wallets.toNano(req.body.initBalanceB)})
+            .send(wallets.toNano(req.body.initBalanceB));
+
+        // Init channel
+        console.log('Initializing channel...');
+        await fromWallet.init({
+            balanceA: wallets.toNano(req.body.initBalanceA),
+            balanceB: wallets.toNano(req.body.initBalanceA),
+            seqnoA: new wallets.BN(req.body.seqnoA),
+            seqnoB: new wallets.BN(req.body.seqnoB)
+        }).send(wallets.netFee);
+        console.log('Channel initialized.');
+    } catch(err) {
+        console.log('Caught error...')
+        console.log(err);
+        res.status(500).send(err);
+    }
+
+    res.send({status: 'initialized'});
+    return;
+
+});
+
+app.post('/transfer-server-channel', async (req, res, next) => {
 
     // Get server wallet
     let wallet;
@@ -99,83 +206,6 @@ app.get('/deploy-server-channel', async (req, res, next) => {
     let channelsMatch;
     try {
         channelsMatch = ((await channel.getAddress()).toString() === req.body.channelAddressA);
-    } catch(err) {
-        console.log(err);
-        res.status(500).send(err)
-    }
-
-    // Deploy channel to blockchain
-    console.log('Deploying channel...');
-    await fromWalletA.deploy().send(wallets.netFee);
-    console.log('Channel deployed.');
-
-    res.send({status: 'deployed'});
-
-});
-
-
-app.get('/init-server-channel', async (req, res, next) => {
-
-    // Get server wallet
-    let wallet;
-    try {
-        wallet = await wallets.getServerWallet();
-    }  catch(err) {
-        console.log(err);
-        res.status(500).send(err)
-    }
-
-    // Create channel
-    const channel = createChannelFromState(wallet, req.boy);
-    const fromWallet = channelHelper(channel, wallet);
-
-    // Check if channel addresses match
-    try {
-        const channelsMatch = ((await channel.getAddress()).toString() === req.body.channelAddressA);
-    } catch(err) {
-        console.log(err);
-        res.status(500).send(err)
-    }
-    if (!channelsMatch) {
-        res.status(403).send({
-            status: 'error',
-            message: 'Channel addresses do not match.'
-        });
-    }
-
-    // Deploy channel to blockchain
-    console.log('Initializing channel...');
-    await fromWalletA.init({
-        balanceA: toNano(req.body.initialBalanceA),
-        balanceB: toNano(req.body.initialBalanceA),
-        seqnoA: new BN(req.body.seqnoA),
-        seqnoB: new BN(req.body.seqnoB)
-    }).send(wallets.netFee);
-    console.log('Channel initialized.');
-
-    res.send({status: 'initialized'});
-
-});
-
-app.get('/transfer-server-channel', async (req, res, next) => {
-
-    // Get server wallet
-    let wallet;
-    try {
-        wallet = await wallets.getServerWallet();
-    }  catch(err) {
-        console.log(err);
-        res.status(500).send(err)
-    }
-
-    // Create channel
-    const channel = createChannelFromState(wallet, req.body);
-    const fromWallet = channelHelper(channel, wallet);
-    const channelsMatch = doChannelsMatch(channel, req.body)
-
-    // Check if channel addresses match
-    try {
-        const channelsMatch = ((await channel.getAddress()).toString() === req.body.channelAddressA);
     } catch(err) {
         console.log(err);
         res.status(500).send(err)
@@ -373,7 +403,7 @@ const initTon = async () => {
         console.log('Init done.');
 
         await sleep(10000);
-        await checkChannelState(channelA);
+        await wallets.checkChannelState(channelA);
 
         console.log('Starting offchain transfer 1...');
         // Off-chain transfer
@@ -385,6 +415,7 @@ const initTon = async () => {
         };
         console.log('A is signing off-chain transfer 1...');
         const signatureA1 = await channelA.signState(channelState1);
+        console.log(signatureA1);
         if (!(await channelB.verifyState(channelState1, signatureA1))) {
             throw new Error('Invalid A signature');
         }
@@ -424,8 +455,7 @@ const initTon = async () => {
 }
 
 
-
-
 app.listen(PORT, HOST, () => {
+  // initTon();
   console.log(`Server started, running on http://${HOST}:${PORT}`);
 });

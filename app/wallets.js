@@ -22,6 +22,24 @@ const checkChannelState = async (channel) => {
   console.log('balanceB = ', data.balanceB.toString())
 }
 
+const getChannelState = async (channel) => {
+  let state;
+  let data;
+  try {
+    state = await channel.getChannelState(),
+    data = await channel.getData();
+  } catch(err) {
+      console.log('Caught error...');
+      console.log(err);
+  }
+  return {
+    status: state,
+    balanceA: data.balanceA.toString(),
+    balanceB: data.balanceB.toString(),
+  }
+}
+
+
 
 const initWalletFromKeyPair = async (keyPair, create) => {
 

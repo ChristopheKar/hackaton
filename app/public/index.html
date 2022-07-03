@@ -11,9 +11,199 @@
     <title>Hello, world!</title>
   </head>
   <body>
-    <h1>Hello, world!</h1>
+    <h1 id="server-wallet-info">Server Wallet</h1>
+    <div id="server-wallet-address">Address: <span></span></div>
+    <div id="server-wallet-key">Public Key: <span></span></div>
+
+    <h1 id="client-wallet-info">Client Wallet</h1>
+    <div id="client-wallet-address">Address: <span></span></div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.min.js" integrity="sha384-cVKIPhGWiC2Al4u+LWgxfKTRIcfu0JTxR+EQDz/bgldoEyl4H0zUF0QKbrJ0EcQF" crossorigin="anonymous"></script>
+    <script src="./js/tonweb.js"></script>
+
+    <script>
+
+    function arrayToBase64(bytes) {
+        var binary = '';
+        for (var i = 0; i < bytes.byteLength; i++) {
+            binary += String.fromCharCode( bytes[ i ] );
+        }
+        return window.btoa(binary);
+    }
+
+    const tonweb = new window.TonWeb(new TonWeb.HttpProvider('https://testnet.toncenter.com/api/v2/jsonRPC', {apiKey: '4d754c4e7326fac4cf685bf1e6d3c5315816a5fcaf985f69e6ceb3d78e687621'}));
+    const BN = tonweb.utils.BN;
+    const toNano = tonweb.utils.toNano;
+
+    const getChannelState = async (channel) => {
+      let state;
+      let data;
+      try {
+          state = await channel.getChannelState(),
+          data = await channel.getData();
+      } catch(err) {
+          console.log('Caught error...');
+          console.log(err);
+      }
+      return {
+          status: state,
+          balanceA: data.balanceA.toString(),
+          balanceB: data.balanceB.toString()
+      }
+    }
+
+    const createWalletFromSeed = (seedBase64) => {
+
+      if (seedBase64 === undefined) {
+        seedBase64 = arrayToBase64(tonweb.utils.newSeed());
+      }
+      const seed = TonWeb.utils.base64ToBytes(seedBase64);
+      const keyPair = tonweb.utils.keyPairFromSeed(seed);
+
+      const wallet = initWalletFromKeyPair(keyPair);
+      wallet.seedB64 = seedBase64;
+
+      return wallet;
+
+    }
+
+    const initWalletFromKeyPair = (keyPair) => {
+      const WalletClass = tonweb.wallet.all['v4R2'];
+      const wallet = new WalletClass(tonweb.provider, {
+          publicKey: keyPair.publicKey,
+          wc: 0
+      });
+      // const wallet = tonweb.wallet.create({publicKey: keyPair.publicKey});
+      return {
+        wallet: wallet,
+        keyPair: keyPair
+      }
+    }
+
+      const clientWallet = createWalletFromSeed('ZkiNN8Gowo7X0AZGU/I5Yrm2v4yUK36UADdkjQR4zKc=');
+      clientWallet.wallet.getAddress().then((resp) => {
+          clientWallet.address = clientWallet.wallet.address.toString(true, true, true);
+          console.log('client wallet', clientWallet);
+          document.querySelector('#client-wallet-address span').innerHTML = clientWallet.address;
+
+          // Get server wallet
+          let serverWallet;
+          fetch('/get-server-wallet', {
+            method: "get",
+            headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json'
+            },
+          })
+          .then((resp) => resp.json())
+          .then(function(data) {
+            serverWallet = data;
+            serverWallet.address.hashPart = Uint8Array.from(Object.values(serverWallet.address.hashPart));
+            serverWallet.keyPair.publicKey = TonWeb.utils.base64ToBytes(serverWallet.keyPair.publicKey);
+            document.querySelector('#server-wallet-address span').innerHTML = serverWallet.addressStr;
+            document.querySelector('#server-wallet-key span').innerHTML = serverWallet.keyPair.publicKey;
+            console.log('server wallet', serverWallet);
+
+            var channelState = {
+              channelId: 99,
+              address: clientWallet.wallet.address,
+              initBalanceA: '0.1',
+              initBalanceB: '0.1',
+              keyPair: {publicKey: clientWallet.keyPair.publicKey},
+              seqnoA: 0,
+              seqnoB: 0
+            }
+            console.log('channel state', channelState);
+
+            const channel = tonweb.payments.createChannel({
+                channelId: new BN(channelState.channelId),
+                addressA: clientWallet.wallet.address,
+                addressB: serverWallet.address,
+                initBalanceA: toNano(channelState.initBalanceA),
+                initBalanceB: toNano(channelState.initBalanceB),
+                isA: true,
+                myKeyPair: clientWallet.keyPair,
+                hisPublicKey: serverWallet.keyPair.publicKey
+            });
+            channel.getAddress().then((addr) => {
+
+              channelState.channelAddress = addr.toString();
+              console.log('Channel Address', channelState.channelAddress);
+
+              const fromClientWallet = channel.fromWallet({
+                  wallet: clientWallet.wallet,
+                  secretKey: clientWallet.keyPair.secretKey
+              });
+
+
+              fetch('/deploy-server-channel', {
+                method: 'POST',
+                headers: {
+                  'Accept': 'application/json',
+                  'Content-Type': 'application/json'
+                },
+                json: true,
+                body: JSON.stringify(channelState)
+              })
+              .then((resp) => resp.json())
+              .then(function(data) {
+                console.log(data);
+
+                console.log('Topping up...');
+                fromClientWallet
+                    .topUp({coinsA: toNano(channelState.initBalanceA), coinsB: new BN(channelState.seqnoB)})
+                    .send(toNano(channelState.initBalanceA))
+                    .then((resp) => {
+                        console.log(resp);
+                        console.log('Done topping up!');
+
+                        fetch('/init-server-channel', {
+                          method: 'POST',
+                          headers: {
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json'
+                          },
+                          json: true,
+                          body: JSON.stringify(channelState)
+                        })
+                        .then((resp) => resp.json())
+                        .then(function(data) {
+                          console.log(data);
+
+                          setTimeout(function() {
+                            getChannelState(channel).then((state) => {
+                              console.log(state);
+                            });
+                          }, 5000);
+
+                        })
+                        .catch(function(error) {
+                          console.log(error);
+                        });
+
+                    });
+
+              })
+              .catch(function(error) {
+                console.log(error);
+              });
+            });
+
+
+
+
+
+          })
+          .catch(function(error) {
+            console.log(error);
+          });
+
+
+      });
+
+
+
+    </script>
 
   </body>
 </html>
