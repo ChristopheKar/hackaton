@@ -1,1 +1,1 @@
-# Hack-a-TON - Payment Channels
+# Hack-a-TON - Dagag Team

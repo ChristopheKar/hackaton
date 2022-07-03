@@ -1,0 +1,28 @@
+diff --git a/node_modules/react-scripts/config/webpack.config.js b/node_modules/react-scripts/config/webpack.config.js
+index e465d8e..4fde724 100644
+--- a/node_modules/react-scripts/config/webpack.config.js
++++ b/node_modules/react-scripts/config/webpack.config.js
+@@ -345,6 +345,10 @@ module.exports = function (webpackEnv) {
+           babelRuntimeRegenerator,
+         ]),
+       ],
++      fallback: {
++          // "stream": require.resolve("stream-browserify"),
++          "buffer": require.resolve("buffer")
++      }
+     },
+     module: {
+       strictExportPresence: true,
+@@ -651,6 +655,12 @@ module.exports = function (webpackEnv) {
+       // during a production build.
+       // Otherwise React will be compiled in the very slow development mode.
+       new webpack.DefinePlugin(env.stringified),
++      new webpack.ProvidePlugin({
++        Buffer: ['buffer', 'Buffer'],
++      }),
++      // new webpack.ProvidePlugin({
++      //     process: 'process/browser',
++      // }),
+       // Experimental hot reloading for React .
+       // https://github.com/facebook/react/tree/main/packages/react-refresh
+       isEnvDevelopment &&
