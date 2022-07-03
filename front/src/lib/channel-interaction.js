@@ -40,11 +40,11 @@ export const deployAndInitServerChannel = async (clientWallet, existingChannel) 
     const serverWallet = await getServerWallet();
 
     let commonChannelConfig = {
-      channelId: existingChannel?.channelId || 80,
-      initBalanceA: existingChannel?.initBalanceA || (Math.min(clientWallet.onChainBalance - 50000000, 1000000) / 1000000000).toString(),
-      initBalanceB: existingChannel?.initBalanceB || (Math.min(clientWallet.onChainBalance, 1000000) * 3 / 1000000000).toString(),
-      balanceA: existingChannel?.balanceA || (Math.min(clientWallet.onChainBalance - 50000000, 1000000) / 1000000000).toString(),
-      balanceB: existingChannel?.balanceB || (Math.min(clientWallet.onChainBalance, 1000000) * 3 / 1000000000).toString(),
+      channelId: existingChannel?.channelId || 76,
+      initBalanceA: existingChannel?.initBalanceA || (Math.min(clientWallet.onChainBalance - 50000000, 10000000) / 1000000000).toString(),
+      initBalanceB: existingChannel?.initBalanceB || (Math.min(clientWallet.onChainBalance, 10000000) * 3 / 1000000000).toString(),
+      balanceA: existingChannel?.balanceA || (Math.min(clientWallet.onChainBalance - 50000000, 10000000) / 1000000000).toString(),
+      balanceB: existingChannel?.balanceB || (Math.min(clientWallet.onChainBalance, 10000000) * 3 / 1000000000).toString(),
       seqnoA: existingChannel?.seqnoA || 0,
       seqnoB: existingChannel?.seqnoB || 0
     }
@@ -155,7 +155,25 @@ export const deployAndInitServerChannel = async (clientWallet, existingChannel) 
         data: channelConfig
       })
       cookies.set('channel', cookieChannelConfig);
+
+      let initState = 0;
+      while(initState !== 1){
+        try{
+          initState = await channel.getChannelState();
+          console.log('state is')
+          console.log(initState)
+          console.log('waiting')
+          await sleep(500);
+        }catch(e){
+          // if error: channel not yet deployed
+          console.log('got an error')
+          console.log(e)
+          await sleep(5000);
+        }
+      }
     }
+
+    console.log(await channel.getData())
 
     return Promise.resolve(channel);
 
@@ -175,10 +193,12 @@ export const makeTransfer = async (clientWallet, channel, amountBet, didWin) => 
 
     const channelInfo = cookies?.get('channel');
 
+    console.log(channelInfo)
+
     const newSeqnoA = channelInfo?.seqnoA + (didWin ? 0 : 1);
     const newSeqnoB = channelInfo?.seqnoB + (didWin ? 1 : 0);
     const newBalanceA = Math.round(( parseFloat(channelInfo?.balanceA) + ((didWin ? 1 : -1) * amountBet / 1000000000) ) * 1000000000) / 1000000000;
-    const newBalanceB = Math.round(( parseFloat(channelInfo?.balanceB) + ((didWin ? -1 : 1) * amountBet / 1000000000) ) * 1000000000 / 1000000000);
+    const newBalanceB = Math.round(( parseFloat(channelInfo?.balanceB) + ((didWin ? -1 : 1) * amountBet / 1000000000) ) * 1000000000) / 1000000000;
     // const newBalanceA = ((tonweb.utils.toNano(channelInfo?.balanceA) + ((didWin ? 1 : -1) * amountBet))/1000000000).toString());
     // const newBalanceB = tonweb.utils.toNano(((tonweb.utils.toNano(channelInfo?.balanceB) + ((didWin ? -1 : 1) * amountBet))/1000000000).toString());
 
@@ -188,37 +208,13 @@ export const makeTransfer = async (clientWallet, channel, amountBet, didWin) => 
         seqnoA: new tonweb.utils.BN(newSeqnoA),
         seqnoB: new tonweb.utils.BN(newSeqnoB),
     };
-    //
-    // console.log({
-    //   balanceA: newBalanceA,
-    //   balanceB: newBalanceB,
-    //   seqnoA: newSeqnoA,
-    //   seqnoB: newSeqnoB
-    // })
 
-    // console.log({
-    //     balanceA: newBalanceA,
-    //     balanceB: newBalanceB,
-    //     seqnoA: new tonweb.utils.BN(newSeqnoA),
-    //     seqnoB: new tonweb.utils.BN(newSeqnoB)
-    // })
-
-    // console.log({
-    // data: {
-    //   channelAddress: channelInfo?.channelAddress,
-    //   address: clientWallet?.wallet?.address,
-    //   keyPair: {publicKey: Uint8Array.from(Object.values(clientWallet?.keyPair?.publicKey))},
-    //   channelId: channelInfo?.channelId,
-    //   initBalanceA: channelInfo?.initBalanceA,
-    //   initBalanceB: channelInfo?.initBalanceB,
-    //   lastState: {
-    //     balanceA: channelInfo?.balanceA,
-    //     balanceB: channelInfo?.balanceB,
-    //     seqnoA: channelInfo?.seqnoA,
-    //     seqnoB: channelInfo?.seqnoB
-    //   },
-    //   signature: arrayToBase64(signature)
-    // }})
+    console.log({
+      balanceA: newBalanceA,
+      balanceB: newBalanceB,
+      seqnoA: newSeqnoA,
+      seqnoB: newSeqnoB
+    })
 
     const signature = await channel.signState(transactionState)
 
@@ -266,5 +262,106 @@ export const makeTransfer = async (clientWallet, channel, amountBet, didWin) => 
     console.log(err)
     return Promise.reject('error');
   }
+
+}
+
+
+export const closeChannel = async (clientWallet, channel) => {
+
+  try {
+
+    const channelInfo = cookies?.get('channel');
+
+    const newSeqnoA = (channelInfo?.seqnoA > 0) ? channelInfo?.seqnoA : 1;
+    const newSeqnoB = (channelInfo?.seqnoB > 0) ? channelInfo?.seqnoB : 1;
+    // const newBalanceA = Math.round(( parseFloat(channelInfo?.balanceA) + ((didWin ? 1 : -1) * amountBet / 1000000000) ) * 1000000000) / 1000000000;
+    // const newBalanceB = Math.round(( parseFloat(channelInfo?.balanceB) + ((didWin ? -1 : 1) * amountBet / 1000000000) ) * 1000000000 / 1000000000);
+    // const newBalanceA = ((tonweb.utils.toNano(channelInfo?.balanceA) + ((didWin ? 1 : -1) * amountBet))/1000000000).toString());
+    // const newBalanceB = tonweb.utils.toNano(((tonweb.utils.toNano(channelInfo?.balanceB) + ((didWin ? -1 : 1) * amountBet))/1000000000).toString());
+
+    const transactionState = {
+        balanceA: tonweb.utils.toNano(channelInfo?.balanceA?.toString()),
+        balanceB: tonweb.utils.toNano(channelInfo?.balanceB?.toString()),
+        seqnoA: new tonweb.utils.BN(newSeqnoA),
+        seqnoB: new tonweb.utils.BN(newSeqnoB),
+    };
+
+    console.log({
+      balanceA: channelInfo?.balanceA,
+      balanceB: channelInfo?.balanceB,
+      seqnoA: newSeqnoA,
+      seqnoB: newSeqnoB
+    })
+
+    console.log('signing')
+    const signature = await channel.signClose(transactionState)
+    console.log(signature)
+
+    // const channelAddress = await channel.getAddress();
+
+    const res = await axios.request({
+      url: '/close-server-channel',
+      method: 'post',
+      baseURL: apiUrl,
+      data: {
+        channelAddress: channelInfo?.channelAddress,
+        address: clientWallet?.wallet?.address,
+        keyPair: {publicKey: Uint8Array.from(Object.values(clientWallet?.keyPair?.publicKey))},
+        channelId: channelInfo?.channelId,
+        initBalanceA: channelInfo?.initBalanceA,
+        initBalanceB: channelInfo?.initBalanceB,
+        lastState: {
+          balanceA: channelInfo?.balanceA,
+          balanceB: channelInfo?.balanceB,
+          seqnoA: newSeqnoA,
+          seqnoB: newSeqnoB
+        },
+        signature: arrayToBase64(signature)
+      }
+    });
+
+    console.log(res)
+    // 
+    // let channelState = 1;
+    // console.log('will begin')
+    // while(channelState === 1){
+    //   try{
+    //     console.log('yo')
+    //     channelState = await channel.getChannelState();
+    //     console.log(channelState)
+    //     console.log('waiting')
+    //     await sleep(1000);
+    //   }catch(e){
+    //     console.log('an err')
+    //     console.log(e)
+    //     console.log('waiting')
+    //     await sleep(10000);
+    //   }
+    // }
+
+    cookies.set('channel', {
+      ...channelInfo,
+      closed: true,
+      balanceA: 0,
+      balanceB: 0,
+      seqnoA: newSeqnoA,
+      seqnoB: newSeqnoB
+    })
+
+    return Promise.resolve({
+      ...channelInfo,
+      closed: true,
+      balanceA: 0,
+      balanceB: 0,
+      seqnoA: newSeqnoA,
+      seqnoB: newSeqnoB
+    });
+
+  }catch(err){
+    console.log("Error making an off-chain transfer")
+    console.log(err)
+    return Promise.reject('error');
+  }
+
 
 }

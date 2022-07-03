@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import './App.css';
 import { getInitialState } from './lib';
 import { getOnChainBalance, deployTonWallet } from './lib/tonweb';
-import { deployAndInitServerChannel, makeTransfer } from './lib/channel-interaction';
+import { deployAndInitServerChannel, makeTransfer, closeChannel } from './lib/channel-interaction';
 import SlotMachine from './components/SlotMachine';
 
 function App() {
@@ -13,6 +13,7 @@ function App() {
   const [channelInfo, setChannelInfo] = useState();
 
   const [initializingChannel, setInitializingChannel] = useState(false);
+  const [cashingOut, setCashingOut] = useState(false);
 
   // let walletBalance = ((wallet?.onChainBalance || 0) + (channel?.balanceA || 0));
 
@@ -57,9 +58,8 @@ function App() {
     if(gameResults !== null){
       (async () => {
         try{
-          const test = (await makeTransfer(wallet, channel, amountBet, gameResults?.won));
-          console.log(test)
-          setChannelInfo(test)
+          const updatedChannel = (await makeTransfer(wallet, channel, amountBet, gameResults?.won));
+          setChannelInfo(updatedChannel);
         }catch(e){
           console.log('error')
         }
@@ -77,6 +77,19 @@ function App() {
       })
       return;
     })
+  }
+
+  const cashOut = async () => {
+    try{
+      setCashingOut(true);
+      const updatedChannel = (await closeChannel(wallet, channel));
+      await refreshOnChainBalance();
+      setChannelInfo(updatedChannel);
+    }catch(e){
+      console.log('error')
+    }finally{
+      setCashingOut(false);
+    }
   }
 
   const deployWallet = async () => {
@@ -143,7 +156,7 @@ function App() {
                 {
                   (wallet?.onChainBalance <= 0) ?
                   <p>Send some TON to your Dagag Wallet on the above address to start playing !</p> :
-                  <p>Your balance in the game channel: {(channelInfo?.balanceA || 0) * 1000000000} nanoTONs</p>
+                  <p>Your balance in the game channel: {Math.round((channelInfo?.balanceA || 0) * 1000000000)} nanoTONs</p>
                 }
                 <p style={{fontSize: 14, color: '#00D'}}><b>Note: For the purposes of this MVP, your wallet is stored in a cookie, if you disable or delete cookies in your browser, you will lose your balance</b></p>
                 <div style={{width: '80%', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around'}}>
@@ -160,7 +173,7 @@ function App() {
                       START GAME
                     </button>
                   }
-                  <button disabled={channelInfo?.balanceA <= 0}>Cash Out</button>
+                  <button onClick={cashOut} disabled={channelInfo?.balanceA <= 0 || cashingOut}>Cash Out</button>
                 </div>
               </> :
               (
