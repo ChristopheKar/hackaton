@@ -26,6 +26,7 @@
 
     <div><button id="init-channel">Init Channel</button></div>
     <div><button id="send-transaction">Send Transaction</button></div>
+    <div><button id="close-channel">Close Channel</button></div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.min.js" integrity="sha384-cVKIPhGWiC2Al4u+LWgxfKTRIcfu0JTxR+EQDz/bgldoEyl4H0zUF0QKbrJ0EcQF" crossorigin="anonymous"></script>
     <script src="./js/tonweb.js"></script>
@@ -47,7 +48,12 @@
     var serverWallet;
     var channelState;
     var fromClientWallet;
-
+    const transactionState = {
+        balanceA: toNano('0.05'),
+        balanceB: toNano('0.05'),
+        seqnoA: new BN(1),
+        seqnoB: new BN(1)
+    };
 
     document.getElementById('check-data').addEventListener('click', function() {
         // Check data
@@ -71,12 +77,6 @@
     document.getElementById('send-transaction').addEventListener('click', function() {
         console.log('Starting offchain transfer...');
         // Off-chain transfer
-        const transactionState = {
-            balanceA: toNano('0.05'),
-            balanceB: toNano('0.05'),
-            seqnoA: new BN(1),
-            seqnoB: new BN(1)
-        };
         console.log('A is signing off-chain transfer...');
         channel.signState(transactionState).then((signature) => {
           fetch('/transfer-server-channel', {
@@ -110,6 +110,40 @@
     });
 
 
+
+    document.getElementById('close-channel').addEventListener('click', function() {
+        console.log('Signing close state...');
+        channel.signClose(transactionState).then((signature) => {
+          fetch('/close-server-channel', {
+            method: 'POST',
+            headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json'
+            },
+            json: true,
+            body: JSON.stringify({
+              ...channelState,
+              lastState: {
+                balanceA: transactionState.balanceA.toNumber()/1000000000,
+                balanceB: transactionState.balanceB.toNumber()/1000000000,
+                seqnoA: transactionState.seqnoA.toNumber(),
+                seqnoB: transactionState.seqnoB.toNumber(),
+              },
+              signature: arrayToBase64(signature)
+            })
+          })
+          .then((resp) => resp.json())
+          .then(function(data) {
+            console.log(data);
+
+          })
+          .catch(function(error) {
+            console.log(error);
+          });
+        });
+
+    });
+
     document.getElementById('init-channel').addEventListener('click', function() {
 
         channel.getChannelState().then((state) => {
@@ -120,7 +154,7 @@
                 .send(toNano(channelState.initBalanceA).add(toNano('0.05')))
                 .then((resp) => {
                     console.log(resp);
-                    console.log('Done topping up!');
+                    console.log('Done topping up! Requesting top-up and init...');
 
                     fetch('/init-server-channel', {
                       method: 'POST',
@@ -200,7 +234,7 @@
           console.log('server wallet', serverWallet);
 
           channelState = {
-            channelId: 148,
+            channelId: 151,
             address: clientWallet.wallet.address,
             initBalanceA: '0.05',
             initBalanceB: '0.05',

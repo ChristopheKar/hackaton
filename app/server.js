@@ -269,7 +269,7 @@ app.post('/transfer-server-channel', async (req, res, next) => {
 });
 
 
-app.get('/close-server-channel', async (req, res, next) => {
+app.post('/close-server-channel', async (req, res, next) => {
 
     // Get server wallet
     let wallet;
@@ -287,40 +287,75 @@ app.get('/close-server-channel', async (req, res, next) => {
     // Check if channel addresses match
     let channelsMatch;
     try {
-        channelsMatch = ((await channel.getAddress()).toString() === req.body.channelAddressA);
+        let channelAddress = (await channel.getAddress()).toString();
+        console.log('Channel Address', channelAddress, '//', req.body.channelAddress);
+        channelsMatch = (channelAddress === req.body.channelAddress);
     } catch(err) {
+        console.log('Caught error...');
         console.log(err);
-        res.status(500).send(err)
+        res.status(500).send(err);
     }
     if (!channelsMatch) {
+        console.log('channels do not match.');
         res.status(403).send({
             status: 'error',
             message: 'Channel addresses do not match.'
         });
+        return;
     }
 
-    console.log('Closing channel...');
+    // console.log('Closing channel...');
+    // const signatureCloseB = await channelB.signClose(channelInitState);
+    // if (!(await channelA.verifyClose(channelInitState, signatureCloseB))) {
+    //     throw new Error('Invalid B signature');
+    // }
+    //
+    // await fromWalletA.close({
+    //     ...channelInitState,
+    //     hisSignature: signatureCloseB
+    // }).send(netFee);
+
+    console.log('Veryfing close signature...');
     // Verify close signature
     let isValidClose;
+    const lastState = {
+      balanceA: wallets.toNano(req.body.lastState.balanceA.toString()),
+      balanceB: wallets.toNano(req.body.lastState.balanceB.toString()),
+      seqnoA: new wallets.BN(req.body.lastState.seqnoA.toString()),
+      seqnoB: new wallets.BN(req.body.lastState.seqnoB.toString())
+    }
+    let hisSignature = wallets.tonweb.utils.base64ToBytes(req.body.signature);
     try {
-        isValidClose = (await channel.verifyClose(req.body.lastState, req.body.signatureClose));
+        isValidClose = (await channel.verifyClose(lastState, hisSignature));
     } catch(err) {
         console.log(err);
         res.status(500).send(err)
+        return;
     }
     if (!isValidClose) {
       res.status(403).send({
           status: 'error',
-          message: 'Invalid closing signature.'
+          message: 'Invalid close signature.'
       });
+      return;
     }
-    // Close channel
-    await fromWallet.close({
-        ...req.body.lastState,
-        hisSignature: req.body.signatureClose
-    }).send(wallets.netFee);
-    console.log('Channel closed.');
+    console.log('Close signature verified.');
 
+
+    console.log('Closing channel...');
+    try {
+      await fromWallet.close({
+          ...lastState,
+          hisSignature: hisSignature
+      }).send(wallets.netFee);
+    } catch(err) {
+        console.log('Error in closing channel');
+        console.log(err);
+        res.status(500).send(err)
+        return;
+    }
+
+    console.log('Channel closed.');
     res.send({status: 'closed'});
 
 });
