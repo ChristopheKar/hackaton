@@ -135,7 +135,6 @@ export default class SlotMachine extends React.Component {
 
   handleClick() {
     if(this?.props?.canPlay){
-      this?.props?.setAmountBet(0);
       this.setState({ winner: null, error: null });
       this.emptyArray();
       this._child1.forceUpdateHandler();
@@ -157,6 +156,7 @@ export default class SlotMachine extends React.Component {
       let results = SlotMachine.matches.every(match => match === first);
       this?.props?.setGameResults({won: results});
       this.setState({ winner: results });
+      // this?.props?.setAmountBet(0);
     }
   }
 

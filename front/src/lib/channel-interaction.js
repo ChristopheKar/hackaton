@@ -173,22 +173,35 @@ export const makeTransfer = async (clientWallet, channel, amountBet, didWin) => 
 
   try{
 
-    console.log('hello')
-
     const channelInfo = cookies?.get('channel');
-    console.log(channelInfo)
 
     const newSeqnoA = channelInfo?.seqnoA + (didWin ? 0 : 1);
-    const newSeqnoB = channelInfo?.seqnoB + (didWin ? 0 : 1);
-    const newBalanceA = ((tonweb.utils.toNano(channelInfo?.balanceA) + ((didWin ? 1 : -1) * amountBet)).toString());
-    const newBalanceB = ((tonweb.utils.toNano(channelInfo?.balanceB) + ((didWin ? -1 : 1) * amountBet)).toString());
+    const newSeqnoB = channelInfo?.seqnoB + (didWin ? 1 : 0);
+    const newBalanceA = ( parseFloat(channelInfo?.balanceA) + ((didWin ? 1 : -1) * amountBet / 1000000000) );
+    const newBalanceB = ( parseFloat(channelInfo?.balanceB) + ((didWin ? -1 : 1) * amountBet / 1000000000) );
+    // const newBalanceA = ((tonweb.utils.toNano(channelInfo?.balanceA) + ((didWin ? 1 : -1) * amountBet))/1000000000).toString());
+    // const newBalanceB = tonweb.utils.toNano(((tonweb.utils.toNano(channelInfo?.balanceB) + ((didWin ? -1 : 1) * amountBet))/1000000000).toString());
 
     const transactionState = {
-        balanceA: newBalanceA,
-        balanceB: newBalanceB,
+        balanceA: tonweb.utils.toNano(newBalanceA?.toString()),
+        balanceB: tonweb.utils.toNano(newBalanceB?.toString()),
         seqnoA: new tonweb.utils.BN(newSeqnoA),
-        seqnoB: new tonweb.utils.BN(newSeqnoB)
+        seqnoB: new tonweb.utils.BN(newSeqnoB),
     };
+    //
+    // console.log({
+    //   balanceA: newBalanceA,
+    //   balanceB: newBalanceB,
+    //   seqnoA: newSeqnoA,
+    //   seqnoB: newSeqnoB
+    // })
+
+    // console.log({
+    //     balanceA: newBalanceA,
+    //     balanceB: newBalanceB,
+    //     seqnoA: new tonweb.utils.BN(newSeqnoA),
+    //     seqnoB: new tonweb.utils.BN(newSeqnoB)
+    // })
 
     // console.log({
     // data: {
@@ -223,32 +236,29 @@ export const makeTransfer = async (clientWallet, channel, amountBet, didWin) => 
         initBalanceA: channelInfo?.initBalanceA,
         initBalanceB: channelInfo?.initBalanceB,
         lastState: {
-          balanceA: channelInfo?.balanceA,
-          balanceB: channelInfo?.balanceB,
-          seqnoA: channelInfo?.seqnoA,
-          seqnoB: channelInfo?.seqnoB
+          balanceA: newBalanceA,
+          balanceB: newBalanceB,
+          seqnoA: newSeqnoA,
+          seqnoB: newSeqnoB
         },
         signature: arrayToBase64(signature)
       }
     });
 
-    console.log('res')
-    console.log(res)
-
     cookies.set('channel', {
       ...channelInfo,
-      balanceA: (transactionState?.balanceA/1000000000)?.toString(),
-      balanceB: (transactionState?.balanceB/1000000000)?.toString(),
+      balanceA: newBalanceA,
+      balanceB: newBalanceB,
       seqnoA: newSeqnoA,
-      seqNoB: newSeqnoB
+      seqnoB: newSeqnoB
     })
 
     return Promise.resolve({
       ...channelInfo,
-      balanceA: (transactionState?.balanceA/1000000000)?.toString(),
-      balanceB: (transactionState?.balanceB/1000000000)?.toString(),
+      balanceA: newBalanceA,
+      balanceB: newBalanceB,
       seqnoA: newSeqnoA,
-      seqNoB: newSeqnoB
+      seqnoB: newSeqnoB
     });
 
   }catch(err){
