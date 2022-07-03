@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 
 import './App.css';
 import { getInitialState } from './lib';
-import { getOnChainBalance } from './lib/tonweb';
+import { getOnChainBalance, deployTonWallet } from './lib/tonweb';
+import { deployAndInitServerChannel } from './lib/channel-interaction';
 import SlotMachine from './components/SlotMachine';
 
 function App() {
@@ -12,6 +13,7 @@ function App() {
 
   let walletBalance = ((wallet?.onChainBalance || 0) + (channel?.balanceA || 0));
 
+  const [deploymentError, setDeploymentError] = useState();
 
   const [gameResults, setGameResults] = useState(null);
   const [amountBet, setAmountBet] = useState(0);
@@ -56,17 +58,42 @@ function App() {
   }, [gameResults])
 
 
-  const refreshBalanceOnClick = () => {
-    getOnChainBalance(wallet)
+  const refreshOnChainBalance = async () => {
+    return getOnChainBalance(wallet)
     .then((onChainBalance) => {
       setWallet({
         ...wallet,
         onChainBalance
       })
+      return;
     })
   }
 
+  const deployWallet = async () => {
+    setDeploymentError(null);
+    let deployed = wallet?.isDeployed;
+    try{
+      if(!deployed){
+        deployed = await deployTonWallet(wallet);
+      }
+    }catch(e){
+    }finally{
+      await refreshOnChainBalance();
+      if(deployed){
+        setWallet({
+          ...wallet,
+          isDeployed: true
+        });
+      }else{
+        setDeploymentError('Could not deploy wallet, your balance is ' + wallet?.onChainBalance + ' nanoTONs');
+      }
+    }
+  }
 
+  const startGame = async () => {
+    await refreshOnChainBalance();
+    setChannel(await deployAndInitServerChannel(wallet, channel));
+  }
 
   return (
     <div className="App">
@@ -83,23 +110,60 @@ function App() {
         >
           Learn React
         </a> */}
-        <p>Your wallet address: {wallet?.address}</p>
-        <div style={{display: 'flex', flexDirection: 'row'}}>
-          <p>Wallet Balance: {walletBalance} nanoTON</p>
-          <button onClick={refreshBalanceOnClick} style={{marginLeft: '10px'}}>Refresh</button>
-        </div>
         <h3>The Dagag Machine</h3>
         {
-          (walletBalance <= 0) &&
-          <p>Send some TON to your Dagag Wallet on the above address to start playing !</p>
+          (
+            wallet &&
+            wallet?.isDeployed
+          ) ?
+          <>
+            <p>Your wallet address: {wallet?.address}</p>
+            <div style={{display: 'flex', flexDirection: 'row'}}>
+              <p>Wallet Balance: {walletBalance} nanoTON</p>
+              <button onClick={refreshOnChainBalance} style={{marginLeft: '10px'}}>Refresh</button>
+            </div>
+            {
+              (walletBalance <= 0) &&
+              <p>Send some TON to your Dagag Wallet on the above address to start playing !</p>
+            }
+            <p style={{fontSize: 14, color: '#00D'}}><b>Note: For the purposes of this MVP, your wallet is stored in a cookie, if you disable or delete cookies in your browser, you will lose your balance</b></p>
+            <div style={{width: '80%', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around'}}>
+              {
+                (
+                  !channel ||
+                  channel?.closed
+                ) &&
+                wallet &&
+                <button
+                  onClick={startGame}
+                  disabled={walletBalance <= 0}
+                >
+                  START GAME
+                </button>
+              }
+              <button disabled={walletBalance <= 0}>Cash Out</button>
+            </div>
+          </> :
+          (
+            wallet &&
+            <>
+              <p>
+                Welcome to the Dagag Machine ! We generated a wallet for you, send {wallet?.deployFee} nanoTONs to the following address to deploy it and get started.
+              </p>
+              <p>
+                Non-Bounceable Address: {wallet?.nonBounceableAddress}
+              </p>
+              {
+                deploymentError &&
+                <p style={{fontSize: 12, color: "#D00"}}>{deploymentError}</p>
+              }
+              <button onClick={deployWallet} style={{marginLeft: '10px'}}>Deploy</button>
+            </>
+          )
         }
-        <p style={{fontSize: 14, color: '#00D'}}><b>Note: For the purposes of this MVP, your wallet is stored in a cookie, if you disable or delete cookies in your browser, you will lose your balance</b></p>
-        <div style={{width: '80%', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around'}}>
-          <button disabled={walletBalance <= 0}>START GAME</button>
-          <button disabled={walletBalance <= 0}>Cash Out</button>
-        </div>
         <SlotMachine
-          hideInteractions={walletBalance <= 0 || !channel}
+          hideInteractions={walletBalance <= 0 || !channel || channel?.closed}
+          canPlay={amountBet > 0 && amountBet <= walletBalance}
           amountBet={amountBet}
           setAmountBet={setAmountBet}
           setGameResults={setGameResults}

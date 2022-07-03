@@ -1,6 +1,6 @@
 import { initWalletFromKeyPair, createWalletFromSeed } from './tonweb';
 import { cookies } from './cookies';
-
+import { tonweb } from './tonweb';
 
 export const getInitialState = async () => {
 
@@ -10,20 +10,36 @@ export const getInitialState = async () => {
 
     let wallet = await initWalletFromKeyPair(cookieWallet?.keyPair);
 
-    let channel = cookies.get('channel');
+    let channelCookie = cookies.get('channel');
+    let channel = {
+      ...channelCookie,
+      seqNoA: parseInt(channelCookie?.seqNoA),
+      seqNoB: parseInt(channelCookie?.seqNoB),
+      balanceA: parseInt(channelCookie?.balanceA),
+      balanceB: parseInt(channelCookie?.balanceB)
+    }
+
+    if(channelCookie?.closed === false){
+      channel = tonweb.payments.createChannel({
+          channelId: new tonweb.utils.BN(channelCookie?.channelId),
+          addressA: wallet?.wallet?.address,
+          addressB: channelCookie?.address,
+          initBalanceA: tonweb.utils.toNano(channelCookie?.balanceA),
+          initBalanceB: tonweb.utils.toNano(channelCookie?.balanceB),
+          isA: true,
+          myKeyPair: wallet?.keyPair,
+          hisPublicKey: channelCookie?.serverWallet.keyPair.publicKey
+      });
+      await channel.getAddress();    // this also fills channel object's address
+    }
 
     return Promise.resolve({
-      wallet,
-      ...(channel && {
-        channel: {
-          ...channel,
-          initialBalanceA: parseInt(channel?.initialBalanceA),
-          initialBalanceB: parseInt(channel?.initialBalanceB),
-          seqNoA: parseInt(channel?.seqNoA),
-          seqNoB: parseInt(channel?.seqNoB),
-          balanceA: parseInt(channel?.balanceA),
-          balanceB: parseInt(channel?.balanceB)
-        }
+      wallet: {
+        ...cookieWallet,
+        ...wallet
+      },
+      ...(channelCookie && {
+        ...channel
       })
     });
 
@@ -36,7 +52,10 @@ export const getInitialState = async () => {
 
     cookies.set('wallet', {
       keyPair: wallet?.keyPair,
-      address: wallet?.address
+      address: wallet?.address,
+      isDeployed: wallet?.isDeployed,
+      deployFee: wallet?.deployFee,
+      nonBounceableAddress: wallet?.nonBounceableAddress
     })
 
     return Promise.resolve({
