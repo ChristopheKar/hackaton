@@ -5,3 +5,11 @@ export function arrayToBase64(bytes) {
     }
     return window.btoa(binary);
 }
+
+
+export function sleep(ms) {
+  console.log(`Waiting for ${ms}ms`);
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
