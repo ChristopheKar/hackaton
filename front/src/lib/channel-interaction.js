@@ -1,7 +1,9 @@
 import axios from 'axios';
 import { tonweb } from './tonweb';
+import { sleep, arrayToBase64 } from './helpers';
 import { cookies } from './cookies';
-import { sleep } from './helpers';
+
+
 
 const apiUrl = 'http://localhost:8080';
 
@@ -38,7 +40,9 @@ export const deployAndInitServerChannel = async (clientWallet, existingChannel) 
     const serverWallet = await getServerWallet();
 
     let commonChannelConfig = {
-      channelId: existingChannel?.channelId || 85,
+      channelId: existingChannel?.channelId || 80,
+      initBalanceA: existingChannel?.initBalanceA || (Math.min(clientWallet.onChainBalance - 50000000, 1000000) / 1000000000).toString(),
+      initBalanceB: existingChannel?.initBalanceB || (Math.min(clientWallet.onChainBalance, 1000000) * 3 / 1000000000).toString(),
       balanceA: existingChannel?.balanceA || (Math.min(clientWallet.onChainBalance - 50000000, 1000000) / 1000000000).toString(),
       balanceB: existingChannel?.balanceB || (Math.min(clientWallet.onChainBalance, 1000000) * 3 / 1000000000).toString(),
       seqnoA: existingChannel?.seqnoA || 0,
@@ -53,8 +57,6 @@ export const deployAndInitServerChannel = async (clientWallet, existingChannel) 
 
     let channelConfig = {
       ...commonChannelConfig,
-      initBalanceA: commonChannelConfig?.balanceA,
-      initBalanceB: commonChannelConfig?.balanceB,
       address: clientWallet?.wallet?.address,
       keyPair: {
         publicKey: Uint8Array.from(Object.values(clientWallet?.keyPair?.publicKey))
@@ -66,8 +68,8 @@ export const deployAndInitServerChannel = async (clientWallet, existingChannel) 
         channelId: new tonweb.utils.BN(channelConfig.channelId),
         addressA: clientWallet?.wallet?.address,
         addressB: serverWallet.address,
-        initBalanceA: tonweb.utils.toNano(channelConfig.balanceA),
-        initBalanceB: tonweb.utils.toNano(channelConfig.balanceB),
+        initBalanceA: tonweb.utils.toNano(channelConfig.initBalanceA),
+        initBalanceB: tonweb.utils.toNano(channelConfig.initBalanceB),
         isA: true,
         myKeyPair: {
           publicKey: Uint8Array.from(Object.values(clientWallet?.keyPair?.publicKey)),
@@ -77,6 +79,7 @@ export const deployAndInitServerChannel = async (clientWallet, existingChannel) 
     });
     const channelAddress = await channel.getAddress();    // this also fills channel object's address
     channelConfig.channelAddress = channelAddress.toString();
+    cookieChannelConfig.channelAddress = channelAddress.toString();
 
     let deployed = false;
     let initted = false;
@@ -118,10 +121,6 @@ export const deployAndInitServerChannel = async (clientWallet, existingChannel) 
         }
       }
 
-      let teet = await tonweb.getBalance(clientWallet?.address);
-      console.log(teet / 1000000000);
-      console.log(channelConfig?.balanceA)
-      console.log(clientWallet)
 
       let channelData = await channel.getData();
       let prevBalance = channelData.balanceA.toNumber();
@@ -165,6 +164,97 @@ export const deployAndInitServerChannel = async (clientWallet, existingChannel) 
     console.log('Error somewhere in channel deployment and init');
     console.log(err)
     return Promise.resolve(null);
+  }
+
+}
+
+
+export const makeTransfer = async (clientWallet, channel, amountBet, didWin) => {
+
+  try{
+
+    console.log('hello')
+
+    const channelInfo = cookies?.get('channel');
+    console.log(channelInfo)
+
+    const newSeqnoA = channelInfo?.seqnoA + (didWin ? 0 : 1);
+    const newSeqnoB = channelInfo?.seqnoB + (didWin ? 0 : 1);
+    const newBalanceA = ((tonweb.utils.toNano(channelInfo?.balanceA) + ((didWin ? 1 : -1) * amountBet)).toString());
+    const newBalanceB = ((tonweb.utils.toNano(channelInfo?.balanceB) + ((didWin ? -1 : 1) * amountBet)).toString());
+
+    const transactionState = {
+        balanceA: newBalanceA,
+        balanceB: newBalanceB,
+        seqnoA: new tonweb.utils.BN(newSeqnoA),
+        seqnoB: new tonweb.utils.BN(newSeqnoB)
+    };
+
+    // console.log({
+    // data: {
+    //   channelAddress: channelInfo?.channelAddress,
+    //   address: clientWallet?.wallet?.address,
+    //   keyPair: {publicKey: Uint8Array.from(Object.values(clientWallet?.keyPair?.publicKey))},
+    //   channelId: channelInfo?.channelId,
+    //   initBalanceA: channelInfo?.initBalanceA,
+    //   initBalanceB: channelInfo?.initBalanceB,
+    //   lastState: {
+    //     balanceA: channelInfo?.balanceA,
+    //     balanceB: channelInfo?.balanceB,
+    //     seqnoA: channelInfo?.seqnoA,
+    //     seqnoB: channelInfo?.seqnoB
+    //   },
+    //   signature: arrayToBase64(signature)
+    // }})
+
+    const signature = await channel.signState(transactionState)
+
+    // const channelAddress = await channel.getAddress();
+
+    const res = await axios.request({
+      url: '/transfer-server-channel',
+      method: 'post',
+      baseURL: apiUrl,
+      data: {
+        channelAddress: channelInfo?.channelAddress,
+        address: clientWallet?.wallet?.address,
+        keyPair: {publicKey: Uint8Array.from(Object.values(clientWallet?.keyPair?.publicKey))},
+        channelId: channelInfo?.channelId,
+        initBalanceA: channelInfo?.initBalanceA,
+        initBalanceB: channelInfo?.initBalanceB,
+        lastState: {
+          balanceA: channelInfo?.balanceA,
+          balanceB: channelInfo?.balanceB,
+          seqnoA: channelInfo?.seqnoA,
+          seqnoB: channelInfo?.seqnoB
+        },
+        signature: arrayToBase64(signature)
+      }
+    });
+
+    console.log('res')
+    console.log(res)
+
+    cookies.set('channel', {
+      ...channelInfo,
+      balanceA: (transactionState?.balanceA/1000000000)?.toString(),
+      balanceB: (transactionState?.balanceB/1000000000)?.toString(),
+      seqnoA: newSeqnoA,
+      seqNoB: newSeqnoB
+    })
+
+    return Promise.resolve({
+      ...channelInfo,
+      balanceA: (transactionState?.balanceA/1000000000)?.toString(),
+      balanceB: (transactionState?.balanceB/1000000000)?.toString(),
+      seqnoA: newSeqnoA,
+      seqNoB: newSeqnoB
+    });
+
+  }catch(err){
+    console.log("Error making an off-chain transfer")
+    console.log(err)
+    return Promise.reject('error');
   }
 
 }
