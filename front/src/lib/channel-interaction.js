@@ -38,9 +38,9 @@ export const deployAndInitServerChannel = async (clientWallet, existingChannel) 
     const serverWallet = await getServerWallet();
 
     let commonChannelConfig = {
-      channelId: existingChannel?.channelId || 99,
-      balanceA: existingChannel?.balanceA || (Math.max(clientWallet.onChainBalance, 1000000000) / 1000000000).toString(),
-      balanceB: existingChannel?.balanceB || (Math.max(clientWallet.onChainBalance, 1000000000) * 3 / 1000000000).toString(),
+      channelId: existingChannel?.channelId || 85,
+      balanceA: existingChannel?.balanceA || (Math.min(clientWallet.onChainBalance - 50000000, 1000000) / 1000000000).toString(),
+      balanceB: existingChannel?.balanceB || (Math.min(clientWallet.onChainBalance, 1000000) * 3 / 1000000000).toString(),
       seqnoA: existingChannel?.seqnoA || 0,
       seqnoB: existingChannel?.seqnoB || 0
     }
@@ -103,16 +103,12 @@ export const deployAndInitServerChannel = async (clientWallet, existingChannel) 
         data: channelConfig
       })
 
-      const fromClientWallet = channel.fromWallet({
-          wallet: clientWallet.wallet,
-          secretKey: clientWallet.keyPair.secretKey
-      });
-
       let deploymentComplete = false;
       while(!deploymentComplete){
         try{
           const st = await channel.getChannelState();
-          console.log(st);
+          console.log('state is')
+          console.log(st)
           deploymentComplete = true;
           break;
         }catch(e){
@@ -122,18 +118,29 @@ export const deployAndInitServerChannel = async (clientWallet, existingChannel) 
         }
       }
 
+      let teet = await tonweb.getBalance(clientWallet?.address);
+      console.log(teet / 1000000000);
+      console.log(channelConfig?.balanceA)
+      console.log(clientWallet)
+
       let channelData = await channel.getData();
       let prevBalance = channelData.balanceA.toNumber();
       let currBalance = prevBalance;
 
-      fromClientWallet
+      const fromClientWallet = channel.fromWallet({
+          wallet: clientWallet.wallet,
+          secretKey: Uint8Array.from(Object.values(clientWallet.keyPair.secretKey))
+      });
+
+      await fromClientWallet
         .topUp({
           coinsA: tonweb.utils.toNano(channelConfig.balanceA),
           coinsB: new tonweb.utils.BN(channelConfig.seqnoB)
         })
-        .send(tonweb.utils.toNano(channelConfig.balanceA));
+        .send(tonweb.utils.toNano(channelConfig.balanceA).add(tonweb.utils.toNano('0.05')));
 
       while (currBalance === prevBalance) {
+        console.log('inside the loop')
         channelData = await channel.getData();
         currBalance = channelData.balanceA.toNumber();
         await sleep(500);
