@@ -19,8 +19,12 @@
     <div id="client-wallet-address">Address: <span></span></div>
 
 
+    <h1 id="channel-info">Channel</h1>
+    <div id="channel-address">Address: <span></span></div>
+
     <div><button id="check-data">Check Data</button></div>
 
+    <div><button id="init-channel">Init Channel</button></div>
     <div><button id="send-transaction">Send Transaction</button></div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.min.js" integrity="sha384-cVKIPhGWiC2Al4u+LWgxfKTRIcfu0JTxR+EQDz/bgldoEyl4H0zUF0QKbrJ0EcQF" crossorigin="anonymous"></script>
@@ -42,6 +46,7 @@
     var channel;
     var serverWallet;
     var channelState;
+    var fromClientWallet;
 
 
     document.getElementById('check-data').addEventListener('click', function() {
@@ -70,7 +75,7 @@
             balanceA: toNano('0.05'),
             balanceB: toNano('0.05'),
             seqnoA: new BN(1),
-            seqnoB: new BN(0)
+            seqnoB: new BN(1)
         };
         console.log('A is signing off-chain transfer...');
         channel.signState(transactionState).then((signature) => {
@@ -102,6 +107,44 @@
           });
         });
 
+    });
+
+
+    document.getElementById('init-channel').addEventListener('click', function() {
+
+        channel.getChannelState().then((state) => {
+          if (state === 0) {
+            console.log('State is 0 = deployed, topping up...');
+            fromClientWallet
+                .topUp({coinsA: toNano(channelState.initBalanceA), coinsB: new BN(channelState.seqnoB)})
+                .send(toNano(channelState.initBalanceA).add(toNano('0.05')))
+                .then((resp) => {
+                    console.log(resp);
+                    console.log('Done topping up!');
+
+                    fetch('/init-server-channel', {
+                      method: 'POST',
+                      headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json'
+                      },
+                      json: true,
+                      body: JSON.stringify(channelState)
+                    })
+                    .then((resp) => resp.json())
+                    .then(function(data) {
+                      console.log(data);
+
+                    })
+                    .catch(function(error) {
+                      console.log(error);
+                    });
+
+                });
+          } else {
+            console.log('Channel State', state, ' ...skipping init.')
+          }
+        });
     });
 
 
@@ -157,7 +200,7 @@
           console.log('server wallet', serverWallet);
 
           channelState = {
-            channelId: 137,
+            channelId: 148,
             address: clientWallet.wallet.address,
             initBalanceA: '0.05',
             initBalanceB: '0.05',
@@ -183,7 +226,7 @@
             channelState.channelAddress = addr.toString();
             console.log('Channel Address', channelState.channelAddress);
 
-            const fromClientWallet = channel.fromWallet({
+            fromClientWallet = channel.fromWallet({
                 wallet: clientWallet.wallet,
                 secretKey: clientWallet.keyPair.secretKey
             });
@@ -201,35 +244,7 @@
             .then((resp) => resp.json())
             .then(function(data) {
               console.log(data);
-
-              console.log('Topping up...');
-              fromClientWallet
-                  .topUp({coinsA: toNano(channelState.initBalanceA), coinsB: new BN(channelState.seqnoB)})
-                  .send(toNano(channelState.initBalanceA).add(toNano('0.05')))
-                  .then((resp) => {
-                      console.log(resp);
-                      console.log('Done topping up!');
-
-                      fetch('/init-server-channel', {
-                        method: 'POST',
-                        headers: {
-                          'Accept': 'application/json',
-                          'Content-Type': 'application/json'
-                        },
-                        json: true,
-                        body: JSON.stringify(channelState)
-                      })
-                      .then((resp) => resp.json())
-                      .then(function(data) {
-                        console.log(data);
-
-                      })
-                      .catch(function(error) {
-                        console.log(error);
-                      });
-
-                  });
-
+              document.querySelector('#channel-address span').innerHTML = channelState.channelAddress;
             })
             .catch(function(error) {
               console.log(error);
