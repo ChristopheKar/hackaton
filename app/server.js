@@ -165,7 +165,7 @@ app.post('/init-server-channel', async (req, res, next) => {
         console.log('Topping up...');
         await fromWallet
             .topUp({coinsA: new wallets.BN(req.body.seqnoA), coinsB: wallets.toNano(req.body.initBalanceB)})
-            .send(wallets.toNano(req.body.initBalanceB));
+            .send(wallets.toNano(req.body.initBalanceB).add(wallets.netFee));
 
         // Init channel
         console.log('Initializing channel...');
@@ -205,39 +205,53 @@ app.post('/transfer-server-channel', async (req, res, next) => {
     // Check if channel addresses match
     let channelsMatch;
     try {
-        channelsMatch = ((await channel.getAddress()).toString() === req.body.channelAddressA);
+        let channelAddress = (await channel.getAddress()).toString();
+        console.log('Channel Address', channelAddress, '//', req.body.channelAddress);
+        channelsMatch = (channelAddress === req.body.channelAddress);
     } catch(err) {
+        console.log('Caught error...');
         console.log(err);
-        res.status(500).send(err)
+        res.status(500).send(err);
     }
     if (!channelsMatch) {
+        console.log('channels do not match.');
         res.status(403).send({
             status: 'error',
             message: 'Channel addresses do not match.'
         });
+        return;
     }
 
     // Make off-chain transfer
     console.log('Starting offchain transfer...');
     // Verify state signature
     let isValidState;
+    const lastState = {
+      balanceA: wallets.toNano(req.body.lastState.balanceA.toString()),
+      balanceB: wallets.toNano(req.body.lastState.balanceB.toString()),
+      seqnoA: new wallets.BN(req.body.lastState.seqnoA.toString()),
+      seqnoB: new wallets.BN(req.body.lastState.seqnoB.toString())
+    }
     try {
-        isValidState = (await channel.verifyState(req.body.lastState, req.body.signatureState));
+        isValidState = (await channel.verifyState(lastState, wallets.tonweb.utils.base64ToBytes(req.body.signature)));
     } catch(err) {
         console.log(err);
         res.status(500).send(err)
+        return;
     }
     if (!isValidState) {
       res.status(403).send({
           status: 'error',
           message: 'Invalid state signature.'
       });
+      return;
     }
     // Sign state
-    const signatureB1 = await channel.signState(req.body.lastState);
+    const signatureB1 = await channel.signState(lastState);
     console.log('Transfer done.');
 
     res.send({status: 'transfered'});
+    return;
 
 });
 

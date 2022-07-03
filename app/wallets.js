@@ -16,10 +16,17 @@ function logWallet(wallet, name) {
 }
 
 const checkChannelState = async (channel) => {
-  console.log(await channel.getChannelState());
+  // console.log('Channel State:', await channel.getData());
   const data = await channel.getData();
-  console.log('balanceA = ', data.balanceA.toString())
-  console.log('balanceB = ', data.balanceB.toString())
+  console.log('Channel State:', {
+    state: data.state,
+    balanceA: data.balanceA.toString(),
+    balanceB: data.balanceB.toString(),
+    seqnoA: data.seqnoA.toString(),
+    seqnoB: data.seqnoB.toString()
+  })
+  // console.log('balanceA = ', data.balanceA.toString())
+  // console.log('balanceB = ', data.balanceB.toString())
 }
 
 const getChannelState = async (channel) => {
@@ -108,7 +115,7 @@ const getServerWallet = async () => {
   if (serverWallet) {
       return Promise.resolve(serverWallet);
   } else {
-      serverWallet = await createWalletFromSeed('lPHZcR9JtZoIYAYX3lvx1IeNlFxZqabQ0RF4RoZMoK8=');
+      serverWallet = await createWalletFromSeed('6ZU6avoe+bB3O0hpMjj57RAFzlr8oHqrLIZK+2tGtvM=');
       return Promise.resolve(serverWallet);
   }
 }

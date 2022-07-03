@@ -18,6 +18,11 @@
     <h1 id="client-wallet-info">Client Wallet</h1>
     <div id="client-wallet-address">Address: <span></span></div>
 
+
+    <div><button id="check-data">Check Data</button></div>
+
+    <div><button id="send-transaction">Send Transaction</button></div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.min.js" integrity="sha384-cVKIPhGWiC2Al4u+LWgxfKTRIcfu0JTxR+EQDz/bgldoEyl4H0zUF0QKbrJ0EcQF" crossorigin="anonymous"></script>
     <script src="./js/tonweb.js"></script>
 
@@ -34,23 +39,71 @@
     const tonweb = new window.TonWeb(new TonWeb.HttpProvider('https://testnet.toncenter.com/api/v2/jsonRPC', {apiKey: '4d754c4e7326fac4cf685bf1e6d3c5315816a5fcaf985f69e6ceb3d78e687621'}));
     const BN = tonweb.utils.BN;
     const toNano = tonweb.utils.toNano;
+    var channel;
+    var serverWallet;
+    var channelState;
 
-    const getChannelState = async (channel) => {
-      let state;
-      let data;
-      try {
-          state = await channel.getChannelState(),
-          data = await channel.getData();
-      } catch(err) {
-          console.log('Caught error...');
-          console.log(err);
-      }
-      return {
-          status: state,
-          balanceA: data.balanceA.toString(),
-          balanceB: data.balanceB.toString()
-      }
-    }
+
+    document.getElementById('check-data').addEventListener('click', function() {
+        // Check data
+        channel.getData()
+        .then((data) => {
+          console.log('Channel State:', {
+            state: data.state,
+            balanceA: data.balanceA.toString(),
+            balanceB: data.balanceB.toString(),
+            seqnoA: data.seqnoA.toString(),
+            seqnoB: data.seqnoB.toString()
+          })
+        })
+        .catch(function(error) {
+          console.log('Fetching state error...');
+          console.log(error);
+        });
+    });
+
+
+    document.getElementById('send-transaction').addEventListener('click', function() {
+        console.log('Starting offchain transfer...');
+        // Off-chain transfer
+        const transactionState = {
+            balanceA: toNano('0.05'),
+            balanceB: toNano('0.05'),
+            seqnoA: new BN(1),
+            seqnoB: new BN(0)
+        };
+        console.log('A is signing off-chain transfer...');
+        channel.signState(transactionState).then((signature) => {
+          fetch('/transfer-server-channel', {
+            method: 'POST',
+            headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json'
+            },
+            json: true,
+            body: JSON.stringify({
+              ...channelState,
+              lastState: {
+                balanceA: transactionState.balanceA.toNumber()/1000000000,
+                balanceB: transactionState.balanceB.toNumber()/1000000000,
+                seqnoA: transactionState.seqnoA.toNumber(),
+                seqnoB: transactionState.seqnoB.toNumber(),
+              },
+              signature: arrayToBase64(signature)
+            })
+          })
+          .then((resp) => resp.json())
+          .then(function(data) {
+            console.log(data);
+
+          })
+          .catch(function(error) {
+            console.log(error);
+          });
+        });
+
+    });
+
 
     const createWalletFromSeed = (seedBase64) => {
 
@@ -80,126 +133,117 @@
       }
     }
 
-      const clientWallet = createWalletFromSeed('ZkiNN8Gowo7X0AZGU/I5Yrm2v4yUK36UADdkjQR4zKc=');
-      clientWallet.wallet.getAddress().then((resp) => {
-          clientWallet.address = clientWallet.wallet.address.toString(true, true, true);
-          console.log('client wallet', clientWallet);
-          document.querySelector('#client-wallet-address span').innerHTML = clientWallet.address;
+    const clientWallet = createWalletFromSeed('NLRNNKgE1QTkebGOdsvttJUPHdwak3jObWOwTPBcytQ=');
+    clientWallet.wallet.getAddress().then((resp) => {
+        clientWallet.address = clientWallet.wallet.address.toString(true, true, true);
+        console.log('client wallet', clientWallet);
+        document.querySelector('#client-wallet-address span').innerHTML = clientWallet.address;
 
-          // Get server wallet
-          let serverWallet;
-          fetch('/get-server-wallet', {
-            method: "get",
-            headers: {
-              'Accept': 'application/json',
-              'Content-Type': 'application/json'
-            },
-          })
-          .then((resp) => resp.json())
-          .then(function(data) {
-            serverWallet = data;
-            serverWallet.address.hashPart = Uint8Array.from(Object.values(serverWallet.address.hashPart));
-            serverWallet.keyPair.publicKey = TonWeb.utils.base64ToBytes(serverWallet.keyPair.publicKey);
-            document.querySelector('#server-wallet-address span').innerHTML = serverWallet.addressStr;
-            document.querySelector('#server-wallet-key span').innerHTML = serverWallet.keyPair.publicKey;
-            console.log('server wallet', serverWallet);
+        // Get server wallet
+        fetch('/get-server-wallet', {
+          method: "get",
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          },
+        })
+        .then((resp) => resp.json())
+        .then(function(data) {
+          serverWallet = data;
+          serverWallet.address.hashPart = Uint8Array.from(Object.values(serverWallet.address.hashPart));
+          serverWallet.keyPair.publicKey = TonWeb.utils.base64ToBytes(serverWallet.keyPair.publicKey);
+          document.querySelector('#server-wallet-address span').innerHTML = serverWallet.addressStr;
+          document.querySelector('#server-wallet-key span').innerHTML = serverWallet.keyPair.publicKey;
+          console.log('server wallet', serverWallet);
 
-            var channelState = {
-              channelId: 99,
-              address: clientWallet.wallet.address,
-              initBalanceA: '0.1',
-              initBalanceB: '0.1',
-              keyPair: {publicKey: clientWallet.keyPair.publicKey},
-              seqnoA: 0,
-              seqnoB: 0
-            }
-            console.log('channel state', channelState);
+          channelState = {
+            channelId: 137,
+            address: clientWallet.wallet.address,
+            initBalanceA: '0.05',
+            initBalanceB: '0.05',
+            keyPair: {publicKey: clientWallet.keyPair.publicKey},
+            seqnoA: 0,
+            seqnoB: 0
+          }
+          console.log('channel state', channelState);
 
-            const channel = tonweb.payments.createChannel({
-                channelId: new BN(channelState.channelId),
-                addressA: clientWallet.wallet.address,
-                addressB: serverWallet.address,
-                initBalanceA: toNano(channelState.initBalanceA),
-                initBalanceB: toNano(channelState.initBalanceB),
-                isA: true,
-                myKeyPair: clientWallet.keyPair,
-                hisPublicKey: serverWallet.keyPair.publicKey
-            });
-            channel.getAddress().then((addr) => {
+          channel = tonweb.payments.createChannel({
+              channelId: new BN(channelState.channelId),
+              addressA: clientWallet.wallet.address,
+              addressB: serverWallet.address,
+              initBalanceA: toNano(channelState.initBalanceA),
+              initBalanceB: toNano(channelState.initBalanceB),
+              isA: true,
+              myKeyPair: clientWallet.keyPair,
+              hisPublicKey: serverWallet.keyPair.publicKey
+          });
+          console.log('Channel Object', channel);
+          channel.getAddress().then((addr) => {
 
-              channelState.channelAddress = addr.toString();
-              console.log('Channel Address', channelState.channelAddress);
+            channelState.channelAddress = addr.toString();
+            console.log('Channel Address', channelState.channelAddress);
 
-              const fromClientWallet = channel.fromWallet({
-                  wallet: clientWallet.wallet,
-                  secretKey: clientWallet.keyPair.secretKey
-              });
-
-
-              fetch('/deploy-server-channel', {
-                method: 'POST',
-                headers: {
-                  'Accept': 'application/json',
-                  'Content-Type': 'application/json'
-                },
-                json: true,
-                body: JSON.stringify(channelState)
-              })
-              .then((resp) => resp.json())
-              .then(function(data) {
-                console.log(data);
-
-                console.log('Topping up...');
-                fromClientWallet
-                    .topUp({coinsA: toNano(channelState.initBalanceA), coinsB: new BN(channelState.seqnoB)})
-                    .send(toNano(channelState.initBalanceA))
-                    .then((resp) => {
-                        console.log(resp);
-                        console.log('Done topping up!');
-
-                        fetch('/init-server-channel', {
-                          method: 'POST',
-                          headers: {
-                            'Accept': 'application/json',
-                            'Content-Type': 'application/json'
-                          },
-                          json: true,
-                          body: JSON.stringify(channelState)
-                        })
-                        .then((resp) => resp.json())
-                        .then(function(data) {
-                          console.log(data);
-
-                          setTimeout(function() {
-                            getChannelState(channel).then((state) => {
-                              console.log(state);
-                            });
-                          }, 5000);
-
-                        })
-                        .catch(function(error) {
-                          console.log(error);
-                        });
-
-                    });
-
-              })
-              .catch(function(error) {
-                console.log(error);
-              });
+            const fromClientWallet = channel.fromWallet({
+                wallet: clientWallet.wallet,
+                secretKey: clientWallet.keyPair.secretKey
             });
 
 
+            fetch('/deploy-server-channel', {
+              method: 'POST',
+              headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+              },
+              json: true,
+              body: JSON.stringify(channelState)
+            })
+            .then((resp) => resp.json())
+            .then(function(data) {
+              console.log(data);
 
+              console.log('Topping up...');
+              fromClientWallet
+                  .topUp({coinsA: toNano(channelState.initBalanceA), coinsB: new BN(channelState.seqnoB)})
+                  .send(toNano(channelState.initBalanceA).add(toNano('0.05')))
+                  .then((resp) => {
+                      console.log(resp);
+                      console.log('Done topping up!');
 
+                      fetch('/init-server-channel', {
+                        method: 'POST',
+                        headers: {
+                          'Accept': 'application/json',
+                          'Content-Type': 'application/json'
+                        },
+                        json: true,
+                        body: JSON.stringify(channelState)
+                      })
+                      .then((resp) => resp.json())
+                      .then(function(data) {
+                        console.log(data);
 
-          })
-          .catch(function(error) {
-            console.log(error);
+                      })
+                      .catch(function(error) {
+                        console.log(error);
+                      });
+
+                  });
+
+            })
+            .catch(function(error) {
+              console.log(error);
+            });
           });
 
 
-      });
+        })
+        .catch(function(error) {
+          console.log(error);
+        });
+
+
+    });
 
 
 
