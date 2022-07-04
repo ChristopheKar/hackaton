@@ -40,7 +40,7 @@ export const deployAndInitServerChannel = async (clientWallet, existingChannel) 
     const serverWallet = await getServerWallet();
 
     let commonChannelConfig = {
-      channelId: existingChannel?.channelId || 6,
+      channelId: existingChannel?.channelId || 5,
       initBalanceA: existingChannel?.initBalanceA || (Math.min(clientWallet.onChainBalance - 50000000, 10000000) / 1000000000).toString(),
       initBalanceB: existingChannel?.initBalanceB || (Math.min(clientWallet.onChainBalance, 10000000) * 3 / 1000000000).toString(),
       balanceA: existingChannel?.balanceA || (Math.min(clientWallet.onChainBalance - 50000000, 10000000) / 1000000000).toString(),
@@ -181,7 +181,7 @@ export const deployAndInitServerChannel = async (clientWallet, existingChannel) 
   }catch(err){
     console.log('Error somewhere in channel deployment and init');
     console.log(err)
-    return Promise.resolve(null);
+    return Promise.resolve({});
   }
 
 }
