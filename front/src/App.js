@@ -3,15 +3,19 @@ import { useEffect, useState } from 'react';
 import './App.css';
 import { getInitialState } from './lib';
 import { getOnChainBalance, deployTonWallet } from './lib/tonweb';
-import { deployAndInitServerChannel } from './lib/channel-interaction';
+import { deployAndInitServerChannel, makeTransfer, closeChannel } from './lib/channel-interaction';
 import SlotMachine from './components/SlotMachine';
 
 function App() {
 
-  const [wallet, setWallet] = useState({});
+  const [wallet, setWallet] = useState();
   const [channel, setChannel] = useState();
+  const [channelInfo, setChannelInfo] = useState();
 
-  let walletBalance = ((wallet?.onChainBalance || 0) + (channel?.balanceA || 0));
+  const [initializingChannel, setInitializingChannel] = useState(false);
+  const [cashingOut, setCashingOut] = useState(false);
+
+  // let walletBalance = ((wallet?.onChainBalance || 0) + (channel?.balanceA || 0));
 
   const [deploymentError, setDeploymentError] = useState();
 
@@ -45,15 +49,21 @@ function App() {
       const initialState = await getInitialState();
       setWallet(initialState?.wallet);
       setChannel(initialState?.channel);
+      setChannelInfo(initialState?.channelCookie)
     })()
   }, []);
 
 
   useEffect(() => {
-    if(gameResults?.won === true){
-      console.log('game won')
-    }else if(gameResults?.won === false){
-      console.log('game lost')
+    if(gameResults !== null){
+      (async () => {
+        try{
+          const updatedChannel = (await makeTransfer(wallet, channel, amountBet, gameResults?.won));
+          setChannelInfo(updatedChannel);
+        }catch(e){
+          console.log('error')
+        }
+      })()
     }
   }, [gameResults])
 
@@ -67,6 +77,19 @@ function App() {
       })
       return;
     })
+  }
+
+  const cashOut = async () => {
+    try{
+      setCashingOut(true);
+      const updatedChannel = (await closeChannel(wallet, channel));
+      await refreshOnChainBalance();
+      setChannelInfo(updatedChannel);
+    }catch(e){
+      console.log('error')
+    }finally{
+      setCashingOut(false);
+    }
   }
 
   const deployWallet = async () => {
@@ -91,8 +114,12 @@ function App() {
   }
 
   const startGame = async () => {
+    setInitializingChannel(true);
     await refreshOnChainBalance();
-    setChannel(await deployAndInitServerChannel(wallet, channel));
+    const result = await deployAndInitServerChannel(wallet, channel);
+    setChannel(result?.channel);
+    setChannelInfo(result?.cookieChannelConfig);
+    setInitializingChannel(false);
   }
 
   return (
@@ -113,57 +140,66 @@ function App() {
         <h3>The Dagag Machine</h3>
         {
           (
-            wallet &&
-            wallet?.isDeployed
-          ) ?
-          <>
-            <p>Your wallet address: {wallet?.address}</p>
-            <div style={{display: 'flex', flexDirection: 'row'}}>
-              <p>Wallet Balance: {walletBalance} nanoTON</p>
-              <button onClick={refreshOnChainBalance} style={{marginLeft: '10px'}}>Refresh</button>
-            </div>
-            {
-              (walletBalance <= 0) &&
-              <p>Send some TON to your Dagag Wallet on the above address to start playing !</p>
-            }
-            <p style={{fontSize: 14, color: '#00D'}}><b>Note: For the purposes of this MVP, your wallet is stored in a cookie, if you disable or delete cookies in your browser, you will lose your balance</b></p>
-            <div style={{width: '80%', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around'}}>
-              {
-                (
-                  !channel ||
-                  channel?.closed
-                ) &&
+            initializingChannel ?
+            (
+              <p>We are initializing an off-chain channel between you and our server, please wait as this may take up to one minute</p>
+            ) :
+            (
+              (
                 wallet &&
-                <button
-                  onClick={startGame}
-                  disabled={walletBalance <= 0}
-                >
-                  START GAME
-                </button>
-              }
-              <button disabled={walletBalance <= 0}>Cash Out</button>
-            </div>
-          </> :
-          (
-            wallet &&
-            <>
-              <p>
-                Welcome to the Dagag Machine ! We generated a wallet for you, send {wallet?.deployFee} nanoTONs to the following address to deploy it and get started.
-              </p>
-              <p>
-                Non-Bounceable Address: {wallet?.nonBounceableAddress}
-              </p>
-              {
-                deploymentError &&
-                <p style={{fontSize: 12, color: "#D00"}}>{deploymentError}</p>
-              }
-              <button onClick={deployWallet} style={{marginLeft: '10px'}}>Deploy</button>
-            </>
+                wallet?.isDeployed
+              ) ?
+              <>
+                <p>Your wallet address: {wallet?.address}</p>
+                <div style={{display: 'flex', flexDirection: 'row'}}>
+                  <p>Wallet Balance: {wallet?.onChainBalance} nanoTONs</p>
+                  <button onClick={refreshOnChainBalance} style={{marginLeft: '10px'}}>Refresh</button>
+                </div>
+                {
+                  (wallet?.onChainBalance <= 0) ?
+                  <p>Send some TON to your Dagag Wallet on the above address to start playing !</p> :
+                  <p>Your balance in the game channel: {Math.round((channelInfo?.balanceA || 0) * 1000000000)} nanoTONs</p>
+                }
+                <p style={{fontSize: 14, color: '#00D'}}><b>Note: For the purposes of this MVP, your wallet is stored in a cookie, if you disable or delete cookies in your browser, you will lose your balance</b></p>
+                <div style={{width: '80%', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around'}}>
+                  {
+                    (
+                      !channel ||
+                      channel?.closed
+                    ) &&
+                    wallet &&
+                    <button
+                      onClick={startGame}
+                      disabled={wallet?.onChainBalance <= 0}
+                    >
+                      START GAME
+                    </button>
+                  }
+                  <button onClick={cashOut} disabled={channelInfo?.balanceA <= 0 || cashingOut}>Cash Out</button>
+                </div>
+              </> :
+              (
+                wallet &&
+                <>
+                  <p>
+                    Welcome to the Dagag Machine ! We generated a wallet for you, send {wallet?.deployFee} nanoTONs to the following address to deploy it and get started.
+                  </p>
+                  <p>
+                    Non-Bounceable Address: {wallet?.nonBounceableAddress}
+                  </p>
+                  {
+                    deploymentError &&
+                    <p style={{fontSize: 12, color: "#D00"}}>{deploymentError}</p>
+                  }
+                  <button onClick={deployWallet} style={{marginLeft: '10px'}}>Deploy</button>
+                </>
+              )
+            )
           )
         }
         <SlotMachine
-          hideInteractions={walletBalance <= 0 || !channel || channel?.closed}
-          canPlay={amountBet > 0 && amountBet <= walletBalance}
+          hideInteractions={channelInfo?.balanceA <= 0 || !channel || channel?.closed}
+          canPlay={amountBet > 0 && amountBet <= (channelInfo?.balanceA * 1000000000)}
           amountBet={amountBet}
           setAmountBet={setAmountBet}
           setGameResults={setGameResults}

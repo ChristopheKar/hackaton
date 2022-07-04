@@ -1,6 +1,7 @@
 import { initWalletFromKeyPair, createWalletFromSeed } from './tonweb';
-import { cookies } from './cookies';
 import { tonweb } from './tonweb';
+import { cookies } from './cookies';
+
 
 export const getInitialState = async () => {
 
@@ -8,27 +9,33 @@ export const getInitialState = async () => {
 
   if(cookieWallet && cookieWallet?.keyPair?.publicKey){
 
-    let wallet = await initWalletFromKeyPair(cookieWallet?.keyPair);
+    let wallet = await initWalletFromKeyPair({
+      publicKey: Uint8Array.from(Object.values(cookieWallet?.keyPair?.publicKey)),
+      secretKey: Uint8Array.from(Object.values(cookieWallet?.keyPair?.secretKey))
+    });
 
     let channelCookie = cookies.get('channel');
-    let channel = {
-      ...channelCookie,
-      seqNoA: parseInt(channelCookie?.seqNoA),
-      seqNoB: parseInt(channelCookie?.seqNoB),
-      balanceA: parseInt(channelCookie?.balanceA),
-      balanceB: parseInt(channelCookie?.balanceB)
-    }
-
+    // let channel = {
+    //   ...channelCookie,
+    //   seqNoA: parseInt(channelCookie?.seqNoA),
+    //   seqNoB: parseInt(channelCookie?.seqNoB),
+    //   balanceA: tonweb.utils.toNano(channelCookie?.balanceA),
+    //   balanceB: tonweb.utils.toNano(channelCookie?.balanceB)
+    // }
+    let channel;
     if(channelCookie?.closed === false){
       channel = tonweb.payments.createChannel({
           channelId: new tonweb.utils.BN(channelCookie?.channelId),
           addressA: wallet?.wallet?.address,
           addressB: channelCookie?.address,
-          initBalanceA: tonweb.utils.toNano(channelCookie?.balanceA),
-          initBalanceB: tonweb.utils.toNano(channelCookie?.balanceB),
+          initBalanceA: tonweb.utils.toNano(channelCookie?.initBalanceA),
+          initBalanceB: tonweb.utils.toNano(channelCookie?.initBalanceB),
           isA: true,
-          myKeyPair: wallet?.keyPair,
-          hisPublicKey: channelCookie?.serverWallet.keyPair.publicKey
+          myKeyPair: {
+            publicKey: Uint8Array.from(Object.values(wallet?.keyPair?.publicKey)),
+            secretKey: Uint8Array.from(Object.values(wallet?.keyPair?.secretKey))
+          },
+          hisPublicKey: Uint8Array.from(Object.values(channelCookie?.serverWallet.keyPair.publicKey))
       });
       await channel.getAddress();    // this also fills channel object's address
     }
@@ -38,9 +45,8 @@ export const getInitialState = async () => {
         ...cookieWallet,
         ...wallet
       },
-      ...(channelCookie && {
-        ...channel
-      })
+      ...(channel && {channel}),
+      ...(channelCookie && {channelCookie})
     });
 
   }else{

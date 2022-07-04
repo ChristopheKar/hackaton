@@ -245,8 +245,11 @@ app.post('/transfer-server-channel', async (req, res, next) => {
       seqnoA: new wallets.BN(req.body.lastState.seqnoA.toString()),
       seqnoB: new wallets.BN(req.body.lastState.seqnoB.toString())
     }
+    console.log(req?.body?.lastState)
+    console.log(lastState)
     try {
         isValidState = (await channel.verifyState(lastState, wallets.tonweb.utils.base64ToBytes(req.body.signature)));
+        console.log(isValidState)
     } catch(err) {
         console.log(err);
         res.status(500).send(err)
