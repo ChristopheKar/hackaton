@@ -40,7 +40,7 @@ export const deployAndInitServerChannel = async (clientWallet, existingChannel) 
     const serverWallet = await getServerWallet();
 
     let commonChannelConfig = {
-      channelId: existingChannel?.channelId || 5,
+      channelId: existingChannel?.channelId || 1,
       initBalanceA: existingChannel?.initBalanceA || (Math.min(clientWallet.onChainBalance - 50000000, 10000000) / 1000000000).toString(),
       initBalanceB: existingChannel?.initBalanceB || (Math.min(clientWallet.onChainBalance, 10000000) * 3 / 1000000000).toString(),
       balanceA: existingChannel?.balanceA || (Math.min(clientWallet.onChainBalance - 50000000, 10000000) / 1000000000).toString(),
