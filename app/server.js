@@ -64,8 +64,6 @@ function channelHelper(channel, wallet) {
 }
 
 
-var homeRouter = require('./routes/home');
-app.use(homeRouter);
 app.use(express.json());
 
 app.get('/get-server-wallet', async (req, res) => {
@@ -351,6 +349,10 @@ app.post('/close-server-channel', async (req, res, next) => {
     res.send({status: 'closed'});
 
 });
+
+
+var homeRouter = require('./routes/home');
+app.use(homeRouter);
 
 
 app.listen(PORT, HOST, () => {

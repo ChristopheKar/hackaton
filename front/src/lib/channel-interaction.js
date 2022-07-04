@@ -5,7 +5,7 @@ import { cookies } from './cookies';
 
 
 
-const apiUrl = process.env.NODE_ENV === 'production' ? '/' : 'http://localhost:8080';
+const apiUrl = process.env.NODE_ENV === 'production' ? '/' : 'http://localhost:80';
 
 export const getServerWallet = () => {
 
@@ -38,8 +38,6 @@ export const deployAndInitServerChannel = async (clientWallet, existingChannel) 
   try{
 
     const serverWallet = await getServerWallet();
-
-    console.log(clientWallet)
 
     let commonChannelConfig = {
       channelId: existingChannel?.channelId || 1,
