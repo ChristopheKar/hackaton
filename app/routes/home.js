@@ -17,3 +17,6 @@ router.get('/*', async (req, res, next) => {
   res.sendFile(
       path.join(__dirname, '../client', 'index.html'))
 })
+
+
+module.exports = router;
