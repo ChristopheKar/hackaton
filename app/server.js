@@ -350,10 +350,8 @@ app.post('/close-server-channel', async (req, res, next) => {
 
 });
 
-
 var homeRouter = require('./routes/home');
 app.use(homeRouter);
-
 
 app.listen(PORT, HOST, () => {
   console.log(`Server started, running on http://${HOST}:${PORT}`);
