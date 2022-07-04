@@ -116,9 +116,9 @@ function App() {
   const startGame = async () => {
     setInitializingChannel(true);
     await refreshOnChainBalance();
-    const {channel: tempChannel, cookieChannelConfig: tempChannelInfo} = await deployAndInitServerChannel(wallet, channel);
-    setChannel(tempChannel);
-    setChannelInfo(tempChannelInfo);
+    const result = await deployAndInitServerChannel(wallet, channel);
+    setChannel(result?.channel);
+    setChannelInfo(result?.cookieChannelConfig);
     setInitializingChannel(false);
   }
 
