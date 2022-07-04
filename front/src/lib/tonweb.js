@@ -83,7 +83,8 @@ export const createWalletFromSeed = async (seedBase64) => {
   }
   const seed = tonweb.utils.base64ToBytes(seedBase64);
   const keyPair = tonweb.utils.keyPairFromSeed(seed);
-
+  console.log('keypair generating')
+  console.log(keyPair)
   const wallet = await initWalletFromKeyPair(keyPair, create);
   wallet.seedB64 = seedBase64;
 
