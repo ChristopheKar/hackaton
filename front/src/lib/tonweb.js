@@ -2,6 +2,8 @@ import TonWeb from 'tonweb';
 import { arrayToBase64 } from './helpers';
 import { cookies } from './cookies';
 
+
+
 const providerUrl = 'https://testnet.toncenter.com/api/v2/jsonRPC'; // TON HTTP API on TESTNET
 export const tonweb = new TonWeb(new TonWeb.HttpProvider(providerUrl, {apiKey: '4d754c4e7326fac4cf685bf1e6d3c5315816a5fcaf985f69e6ceb3d78e687621'}));
 
@@ -81,7 +83,8 @@ export const createWalletFromSeed = async (seedBase64) => {
   }
   const seed = tonweb.utils.base64ToBytes(seedBase64);
   const keyPair = tonweb.utils.keyPairFromSeed(seed);
-
+  console.log('keypair generating')
+  console.log(keyPair)
   const wallet = await initWalletFromKeyPair(keyPair, create);
   wallet.seedB64 = seedBase64;
 
